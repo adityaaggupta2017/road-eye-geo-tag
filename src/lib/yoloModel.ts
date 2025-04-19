@@ -1,40 +1,35 @@
 
 import * as tf from '@tensorflow/tfjs';
 
-// Road quality thresholds
+// Road quality thresholds (based on number of significant defects)
 export const DEFECT_THRESHOLDS = {
-  GOOD: 2, // 0-2 defects = good quality
-  FAIR: 5, // 3-5 defects = fair quality
-  // Anything above 5 is considered poor
+  GOOD: 2,  // 0-2 defects
+  FAIR: 5,  // 3-5 defects
+  // Above 5 is poor
 };
+
+// RDD2022 dataset classes
+export const RDD_CLASSES = [
+  'D00-Longitudinal',
+  'D10-Transverse',
+  'D20-Alligator',
+  'D40-Pothole',
+  'D50-Rutting',
+];
 
 // Cache the model to avoid reloading
 let modelCache: tf.GraphModel | null = null;
 
-// YOLO model classes relevant for road defects
-const ROAD_DEFECT_CLASSES = [
-  'pothole',
-  'crack',
-  'patch',
-  'rutting',
-  'manhole',
-  'joint'
-];
-
-/**
- * Loads the YOLO model
- */
 export const loadYoloModel = async (): Promise<tf.GraphModel> => {
   if (modelCache) {
     return modelCache;
   }
 
   try {
-    // In a real application, this would be the path to your custom YOLO model
-    // For demo purposes, we're using a relative path - in production this might be a CDN URL
-    const model = await tf.loadGraphModel('./models/road_defect_model/model.json');
+    // Load the RDD2022 YOLO model
+    const model = await tf.loadGraphModel('/models/road_defect_model/model.json');
     modelCache = model;
-    console.log('YOLO model loaded successfully');
+    console.log('RDD2022 YOLO model loaded successfully');
     return model;
   } catch (error) {
     console.error('Failed to load YOLO model:', error);
@@ -42,64 +37,58 @@ export const loadYoloModel = async (): Promise<tf.GraphModel> => {
   }
 };
 
-/**
- * Process image using YOLO model to detect road defects
- * @param imageData - Base64 encoded image or image URL
- * @returns Object containing detected defects and quality rating
- */
-export const analyzeRoadImage = async (imageData: string): Promise<{
-  defectCount: number;
-  defects: Array<{type: string, confidence: number, bbox: number[]}>;
-  quality: 'good' | 'fair' | 'poor';
-}> => {
+// Process image data to tensor
+const processImage = async (imageData: string): Promise<tf.Tensor3D> => {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      // Convert image to tensor and preprocess
+      const tensor = tf.browser.fromPixels(img)
+        .resizeNearestNeighbor([640, 640]) // YOLO input size
+        .expandDims(0)
+        .toFloat()
+        .div(255.0); // Normalize
+      
+      resolve(tensor);
+    };
+    img.onerror = reject;
+    img.src = imageData;
+  });
+};
+
+export const analyzeRoadImage = async (imageData: string) => {
   try {
-    // For demonstration purposes, we'll simulate the model inference
-    // In a real app, this would process the image through the YOLO model
+    const model = await loadYoloModel();
+    const tensor = await processImage(imageData);
     
-    // Simulate processing delay
-    await new Promise(resolve => setTimeout(resolve, 300));
-    
-    // Simulate a random number of defects (in production, this would be actual model output)
-    const simulatedDefectCount = Math.floor(Math.random() * 10);
-    
-    // Create simulated defects
-    const defects = Array.from({ length: simulatedDefectCount }).map((_, i) => {
-      const defectType = ROAD_DEFECT_CLASSES[Math.floor(Math.random() * ROAD_DEFECT_CLASSES.length)];
-      return {
-        type: defectType,
-        confidence: 0.7 + (Math.random() * 0.25), // Random confidence between 0.7 and 0.95
-        bbox: [
-          Math.random() * 0.8, // x
-          Math.random() * 0.8, // y
-          0.1 + Math.random() * 0.2, // width
-          0.1 + Math.random() * 0.2  // height
-        ]
-      };
-    });
+    // For demonstration (since we don't have the actual model)
+    // In production, this would use model.predict() and process real outputs
+    const simulatedDefects = RDD_CLASSES
+      .filter(() => Math.random() > 0.7) // Randomly select some defect types
+      .map(type => ({
+        type,
+        confidence: 0.7 + Math.random() * 0.25, // Random confidence between 0.7-0.95
+      }));
+
+    const defectCount = simulatedDefects.length;
     
     // Determine quality based on defect count
     let quality: 'good' | 'fair' | 'poor';
-    
-    if (simulatedDefectCount <= DEFECT_THRESHOLDS.GOOD) {
+    if (defectCount <= DEFECT_THRESHOLDS.GOOD) {
       quality = 'good';
-    } else if (simulatedDefectCount <= DEFECT_THRESHOLDS.FAIR) {
+    } else if (defectCount <= DEFECT_THRESHOLDS.FAIR) {
       quality = 'fair';
     } else {
       quality = 'poor';
     }
-    
+
     return {
-      defectCount: simulatedDefectCount,
-      defects,
+      defectCount,
+      defects: simulatedDefects,
       quality
     };
   } catch (error) {
     console.error('Error analyzing road image:', error);
-    // Default to poor quality on error
-    return {
-      defectCount: 0,
-      defects: [],
-      quality: 'poor'
-    };
+    throw error;
   }
 };
