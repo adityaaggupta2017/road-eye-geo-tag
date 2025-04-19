@@ -1,73 +1,61 @@
-# Welcome to your Lovable project
 
-## Project info
+# RoadEye - Road Quality Monitoring
 
-**URL**: https://lovable.dev/projects/4aff2673-279a-4afb-870b-1060979af729
+RoadEye is a web application that allows users to monitor and map road quality using geolocation and image analysis. The app captures images of roads, analyzes their quality, and displays the results on an interactive map.
 
-## How can I edit this code?
+## Features
 
-There are several ways of editing your application.
+- **Interactive Map Visualization**: View color-coded road segments based on quality (good, fair, poor)
+- **User Authentication**: Secure login system to control access to geotagging features
+- **Geotagging Mode**: Capture images every 2 seconds with automatic location tracking
+- **Real-time Quality Analysis**: Simulated road quality analysis (would be replaced with a YOLO model in production)
+- **Responsive Design**: Works on both desktop and mobile devices
 
-**Use Lovable**
+## Technologies Used
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/4aff2673-279a-4afb-870b-1060979af729) and start prompting.
+### Frontend
+- React with TypeScript
+- React Router for navigation
+- Leaflet.js for interactive maps
+- TailwindCSS for styling
+- shadcn/ui component library
 
-Changes made via Lovable will be committed automatically to this repo.
+### Backend (Simulated)
+- In a production environment, this would be implemented with Golang
 
-**Use your preferred IDE**
+## How to Use
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+1. **View the Map**: The landing page shows all the road quality data
+2. **Login**: Use the credentials provided (test@example.com / password123)
+3. **Start Geotagging**: After login, click "Start Geotagging" in the navbar
+4. **Allow Permissions**: Grant camera and location access when prompted
+5. **Capture Data**: The app will automatically capture images every 2 seconds
+6. **View Results**: Return to the map to see the newly added road segments
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+## Project Setup
 
-Follow these steps:
+```bash
+# Install dependencies
+npm install
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
+# Start development server
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+## Production Deployment
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+```bash
+# Build for production
+npm run build
 
-**Use GitHub Codespaces**
+# Serve production build
+npm run serve
+```
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+## Notes for Implementation
 
-## What technologies are used for this project?
-
-This project is built with:
-
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/4aff2673-279a-4afb-870b-1060979af729) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/tips-tricks/custom-domain#step-by-step-guide)
+- In a production environment, you would need to:
+  - Implement a real Golang backend with proper API endpoints
+  - Set up a database to store road ratings and user information
+  - Integrate a YOLO model for actual road quality analysis
+  - Configure proper authentication with secure token handling
