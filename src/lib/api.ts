@@ -1,17 +1,22 @@
 
 // API client for interacting with the backend
 
-interface Coordinates {
+export interface Coordinates {
   latitude: number;
   longitude: number;
 }
 
-interface RoadRating {
+export interface RoadRating {
   id: string;
   coordinates: Coordinates;
   rating: 'good' | 'fair' | 'poor';
   timestamp: string;
   userId: string;
+}
+
+export interface User {
+  id: string;
+  email: string;
 }
 
 // Simulated API functions since we don't have a real backend yet
@@ -72,7 +77,7 @@ const api = {
     return { success: true };
   },
   
-  getCurrentUser: () => {
+  getCurrentUser: (): User | null => {
     const userStr = localStorage.getItem('user');
     if (userStr) {
       return JSON.parse(userStr);
@@ -117,4 +122,3 @@ const api = {
 };
 
 export default api;
-export type { Coordinates, RoadRating };
