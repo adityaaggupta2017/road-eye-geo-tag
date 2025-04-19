@@ -49,7 +49,8 @@ const processImage = async (imageData: string): Promise<tf.Tensor3D> => {
         .toFloat()
         .div(255.0); // Normalize
       
-      resolve(tensor);
+      // Cast to Tensor3D to ensure correct type
+      resolve(tensor.squeeze() as tf.Tensor3D);
     };
     img.onerror = reject;
     img.src = imageData;
