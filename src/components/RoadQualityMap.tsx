@@ -5,6 +5,8 @@ import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import api from '@/lib/api';
+import { useAuth } from '@/contexts/AuthContext';
 
 // Fix for default marker icons in Leaflet with React
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -44,13 +46,16 @@ interface RoadQualityData {
   quality: 'good' | 'fair' | 'poor';
   imageUrl: string;
   timestamp: string;
+  userId?: string;
 }
 
 export const RoadQualityMap: React.FC = () => {
   const [roadQualityData, setRoadQualityData] = useState<RoadQualityData[]>([]);
+  const { user } = useAuth();
 
   useEffect(() => {
     const loadData = () => {
+      // Load data from localStorage for persistence
       const data = localStorage.getItem('roadQualityData');
       if (data) {
         setRoadQualityData(JSON.parse(data));
@@ -62,10 +67,13 @@ export const RoadQualityMap: React.FC = () => {
     return () => window.removeEventListener('storage', loadData);
   }, []);
 
+  // Default center position (India)
+  const centerPosition: [number, number] = [20.5937, 78.9629];
+
   return (
     <div className="relative w-full h-[600px] rounded-lg overflow-hidden">
       <MapContainer
-        center={[20.5937, 78.9629]} // Center of India
+        center={centerPosition}
         zoom={5}
         style={{ height: '100%', width: '100%' }}
       >
@@ -104,6 +112,11 @@ export const RoadQualityMap: React.FC = () => {
                   <p className="text-sm text-gray-500">
                     {new Date(data.timestamp).toLocaleString()}
                   </p>
+                  {data.userId && (
+                    <p className="text-xs text-gray-400">
+                      Submitted by user
+                    </p>
+                  )}
                 </div>
               </Card>
             </Popup>

@@ -6,6 +6,8 @@ import { Camera, MapPin } from 'lucide-react';
 import { analyzeRoadImage } from '@/lib/yoloModel';
 import { toast } from '@/components/ui/use-toast';
 import { Badge } from '@/components/ui/badge';
+import LocationInput from '@/components/LocationInput';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface RoadQualityData {
   id: string;
@@ -14,6 +16,7 @@ interface RoadQualityData {
   quality: 'good' | 'fair' | 'poor';
   imageUrl: string;
   timestamp: string;
+  userId?: string;
 }
 
 const GeoTagDemoUpload = () => {
@@ -26,22 +29,7 @@ const GeoTagDemoUpload = () => {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-
-  // Generate a random location near the user's current location
-  const generateRandomLocation = () => {
-    // Default to a location in India if geolocation is not available
-    const defaultLat = 20.5937;
-    const defaultLng = 78.9629;
-    
-    // Add some random offset (within ~10km)
-    const latOffset = (Math.random() - 0.5) * 0.1;
-    const lngOffset = (Math.random() - 0.5) * 0.1;
-    
-    return {
-      lat: defaultLat + latOffset,
-      lng: defaultLng + lngOffset
-    };
-  };
+  const { user } = useAuth();
 
   const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -49,8 +37,10 @@ const GeoTagDemoUpload = () => {
       const reader = new FileReader();
       reader.onloadend = () => {
         setSelectedImage(reader.result as string);
-        // Generate a random location when an image is uploaded
-        setLocation(generateRandomLocation());
+        // Generate a default location if none is set
+        if (!location) {
+          setLocation({ lat: 20.5937, lng: 78.9629 });
+        }
       };
       reader.readAsDataURL(file);
     }
@@ -66,38 +56,49 @@ const GeoTagDemoUpload = () => {
       return;
     }
 
+    if (!location) {
+      toast({
+        title: "No location set",
+        description: "Please set a location first",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsAnalyzing(true);
     try {
       const result = await analyzeRoadImage(selectedImage);
       setAnalysis(result);
       
       // Store the analysis result with geolocation
-      if (location) {
-        const id = Date.now().toString();
-        const roadQualityData: RoadQualityData = {
-          id,
-          latitude: location.lat,
-          longitude: location.lng,
-          quality: result.quality,
-          imageUrl: selectedImage,
-          timestamp: new Date().toISOString()
-        };
-        
-        // Get existing data from localStorage
-        const existingData = localStorage.getItem('roadQualityData');
-        const roadQualityStore: RoadQualityData[] = existingData ? JSON.parse(existingData) : [];
-        
-        // Add new data
-        roadQualityStore.push(roadQualityData);
-        
-        // Store in localStorage
-        localStorage.setItem('roadQualityData', JSON.stringify(roadQualityStore));
-        
-        toast({
-          title: "Analysis Complete",
-          description: `Detected ${result.defectCount} defects. Road quality: ${result.quality}`,
-        });
-      }
+      const id = Date.now().toString();
+      const roadQualityData: RoadQualityData = {
+        id,
+        latitude: location.lat,
+        longitude: location.lng,
+        quality: result.quality,
+        imageUrl: selectedImage,
+        timestamp: new Date().toISOString(),
+        userId: user?.id
+      };
+      
+      // Get existing data from localStorage
+      const existingData = localStorage.getItem('roadQualityData');
+      const roadQualityStore: RoadQualityData[] = existingData ? JSON.parse(existingData) : [];
+      
+      // Add new data
+      roadQualityStore.push(roadQualityData);
+      
+      // Store in localStorage
+      localStorage.setItem('roadQualityData', JSON.stringify(roadQualityStore));
+      
+      // Trigger storage event for other components to update
+      window.dispatchEvent(new Event('storage'));
+      
+      toast({
+        title: "Analysis Complete",
+        description: `Detected ${result.defectCount} defects. Road quality: ${result.quality}`,
+      });
     } catch (error) {
       console.error('Analysis error:', error);
       toast({
@@ -209,6 +210,11 @@ const GeoTagDemoUpload = () => {
           </div>
         </div>
       </Card>
+
+      <LocationInput 
+        onLocationSet={setLocation} 
+        currentLocation={location}
+      />
 
       {analysis && (
         <Card className="p-4">

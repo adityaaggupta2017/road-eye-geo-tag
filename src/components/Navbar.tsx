@@ -3,7 +3,7 @@ import React from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
-import { LogIn, LogOut, Camera, MapPin } from 'lucide-react';
+import { LogIn, LogOut, Camera, MapPin, UserPlus } from 'lucide-react';
 
 const Navbar = () => {
   const { user, logout, isAuthenticated } = useAuth();
@@ -63,6 +63,12 @@ const Navbar = () => {
                 <Button variant="outline" className="flex items-center gap-2">
                   <MapPin className="h-4 w-4" />
                   <span>Demo Geotagging</span>
+                </Button>
+              </Link>
+              <Link to="/signup">
+                <Button variant="outline" className="flex items-center gap-2">
+                  <UserPlus className="h-4 w-4" />
+                  <span>Sign Up</span>
                 </Button>
               </Link>
               <Button onClick={() => navigate('/login')} className="flex items-center gap-2">

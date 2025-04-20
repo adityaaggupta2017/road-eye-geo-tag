@@ -13,6 +13,7 @@ interface AuthContextType {
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  signup: (email: string, password: string) => Promise<void>;
   isAuthenticated: boolean;
 }
 
@@ -57,6 +58,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const signup = async (email: string, password: string) => {
+    try {
+      setLoading(true);
+      const response = await api.signup(email, password);
+      setUser(response.user);
+      toast({
+        title: 'Signup successful',
+        description: 'Your account has been created successfully',
+      });
+    } catch (error) {
+      console.error('Signup failed:', error);
+      toast({
+        title: 'Signup failed',
+        description: error instanceof Error ? error.message : 'An unknown error occurred',
+        variant: 'destructive',
+      });
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const logout = async () => {
     try {
       setLoading(true);
@@ -85,6 +108,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         loading,
         login,
         logout,
+        signup,
         isAuthenticated: !!user,
       }}
     >

@@ -71,6 +71,32 @@ const api = {
     throw new Error('Invalid credentials');
   },
   
+  signup: async (email: string, password: string) => {
+    // Simulate API delay
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    
+    // Check if user already exists
+    const existingUser = mockUsers.find((u) => u.email === email);
+    if (existingUser) {
+      throw new Error('Email already in use');
+    }
+    
+    // Create new user
+    const newUser = { 
+      id: `user${Math.random().toString(36).substring(2, 9)}`,
+      email,
+      password
+    };
+    
+    // Add to mock users
+    mockUsers.push(newUser);
+    
+    // Store in localStorage
+    localStorage.setItem('user', JSON.stringify({ id: newUser.id, email: newUser.email }));
+    
+    return { success: true, user: { id: newUser.id, email: newUser.email } };
+  },
+  
   logout: async () => {
     await new Promise((resolve) => setTimeout(resolve, 300));
     localStorage.removeItem('user');
