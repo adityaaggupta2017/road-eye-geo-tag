@@ -6,16 +6,16 @@ import { Card } from '@/components/ui/card';
 import { MapPin } from 'lucide-react';
 
 interface LocationInputProps {
-  onLocationSet: (location: { lat: number; lng: number }) => void;
-  currentLocation: { lat: number; lng: number } | null;
+  onLocationChange: (location: { lat: number; lng: number }) => void;
+  initialLocation: { lat: number; lng: number } | null;
 }
 
-const LocationInput: React.FC<LocationInputProps> = ({ onLocationSet, currentLocation }) => {
+const LocationInput: React.FC<LocationInputProps> = ({ onLocationChange, initialLocation }) => {
   const [latitude, setLatitude] = useState<string>(
-    currentLocation ? currentLocation.lat.toString() : '20.5937'
+    initialLocation ? initialLocation.lat.toString() : '20.5937'
   );
   const [longitude, setLongitude] = useState<string>(
-    currentLocation ? currentLocation.lng.toString() : '78.9629'
+    initialLocation ? initialLocation.lng.toString() : '78.9629'
   );
 
   const handleSetLocation = () => {
@@ -23,7 +23,7 @@ const LocationInput: React.FC<LocationInputProps> = ({ onLocationSet, currentLoc
     const lng = parseFloat(longitude);
     
     if (!isNaN(lat) && !isNaN(lng)) {
-      onLocationSet({ lat, lng });
+      onLocationChange({ lat, lng });
     }
   };
 
@@ -41,7 +41,7 @@ const LocationInput: React.FC<LocationInputProps> = ({ onLocationSet, currentLoc
     
     setLatitude(lat.toFixed(6));
     setLongitude(lng.toFixed(6));
-    onLocationSet({ lat, lng });
+    onLocationChange({ lat, lng });
   };
 
   return (

@@ -103,7 +103,7 @@ const VideoGeotagging: React.FC<VideoGeotaggingProps> = ({ onRatingSubmitted }) 
       const lngOffset = (Math.random() - 0.5) * 0.01;
       
       // Save the road rating
-      await api.addRoadRating({
+      await api.submitRoadRating({
         latitude: currentLat + latOffset,
         longitude: currentLng + lngOffset,
         rating: analysis.quality,

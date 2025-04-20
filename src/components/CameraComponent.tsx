@@ -184,7 +184,7 @@ const CameraComponent: React.FC<CameraComponentProps> = ({
         setLastAnalysis(analysis);
         
         if (location) {
-          await api.addRoadRating({
+          await api.submitRoadRating({
             latitude: location.lat,
             longitude: location.lng,
             rating: analysis.quality,
