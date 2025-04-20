@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -7,18 +8,21 @@ import { analyzeRoadImage } from '@/lib/yoloModel';
 import { cn } from '@/lib/utils';
 import api from '@/lib/api';
 
-// NH1 Highway coordinates (approximate path from Delhi to Amritsar)
-const NH1_COORDINATES = [
-  { lat: 28.7041, lng: 77.1025 }, // Delhi
-  { lat: 28.9845, lng: 77.7064 }, // Sonipat
-  { lat: 29.1492, lng: 77.3220 }, // Panipat
-  { lat: 29.3909, lng: 76.9635 }, // Karnal
-  { lat: 29.6857, lng: 76.9905 }, // Kurukshetra
-  { lat: 30.3752, lng: 76.7821 }, // Ambala
-  { lat: 30.7333, lng: 76.7794 }, // Chandigarh
-  { lat: 31.1471, lng: 75.3412 }, // Jalandhar
-  { lat: 31.6340, lng: 74.8723 }  // Amritsar
-];
+// Function to generate coordinates path from start point
+const generateCoordinatesPath = (startLat: number, startLng: number, numPoints: number = 9) => {
+  const path = [];
+  // Generate points roughly moving northeast (you can adjust these offsets)
+  const latOffset = 0.02; // About 2km per point
+  const lngOffset = 0.02;
+
+  for (let i = 0; i < numPoints; i++) {
+    path.push({
+      lat: startLat + (i * latOffset),
+      lng: startLng + (i * lngOffset)
+    });
+  }
+  return path;
+};
 
 interface VideoGeotaggingProps {
   onRatingSubmitted?: () => void;
@@ -31,10 +35,49 @@ const VideoGeotagging: React.FC<VideoGeotaggingProps> = ({ onRatingSubmitted }) 
   const [progress, setProgress] = useState(0);
   const [currentFrame, setCurrentFrame] = useState<string | null>(null);
   const [currentAnalysis, setCurrentAnalysis] = useState<any>(null);
+  const [coordinates, setCoordinates] = useState<Array<{lat: number, lng: number}>>([]);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const processingIntervalRef = useRef<number | null>(null);
   const locationIndexRef = useRef(0);
+
+  useEffect(() => {
+    // Get user's current location when component mounts
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const path = generateCoordinatesPath(
+            position.coords.latitude,
+            position.coords.longitude
+          );
+          setCoordinates(path);
+          toast({
+            title: "Location found",
+            description: "Generated path from your current location",
+          });
+        },
+        (error) => {
+          console.error('Error getting location:', error);
+          // Fallback to default coordinates (e.g., Delhi)
+          const defaultPath = generateCoordinatesPath(28.7041, 77.1025);
+          setCoordinates(defaultPath);
+          toast({
+            title: "Using default location",
+            description: "Couldn't get your location, using default path",
+            variant: "destructive",
+          });
+        }
+      );
+    } else {
+      const defaultPath = generateCoordinatesPath(28.7041, 77.1025);
+      setCoordinates(defaultPath);
+      toast({
+        title: "Location not supported",
+        description: "Your browser doesn't support geolocation",
+        variant: "destructive",
+      });
+    }
+  }, []);
 
   const handleVideoUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -70,7 +113,7 @@ const VideoGeotagging: React.FC<VideoGeotaggingProps> = ({ onRatingSubmitted }) 
   };
 
   const processVideoFrame = async () => {
-    if (!videoRef.current || videoRef.current.paused) return;
+    if (!videoRef.current || videoRef.current.paused || coordinates.length === 0) return;
 
     try {
       // Capture current frame
@@ -83,16 +126,15 @@ const VideoGeotagging: React.FC<VideoGeotaggingProps> = ({ onRatingSubmitted }) 
       const analysis = await analyzeRoadImage(frameDataUrl);
       setCurrentAnalysis(analysis);
       
-      // Calculate position along NH1 (interpolate between points)
-      const totalPoints = NH1_COORDINATES.length;
+      // Calculate position along the path
       const progress = videoRef.current.currentTime / (videoRef.current.duration || 1);
-      const pointIndex = Math.min(Math.floor(progress * (totalPoints - 1)), totalPoints - 2);
+      const pointIndex = Math.min(Math.floor(progress * (coordinates.length - 1)), coordinates.length - 2);
       locationIndexRef.current = pointIndex;
       
       // Interpolate between two points
-      const startPoint = NH1_COORDINATES[pointIndex];
-      const endPoint = NH1_COORDINATES[pointIndex + 1];
-      const t = (progress * (totalPoints - 1)) % 1;
+      const startPoint = coordinates[pointIndex];
+      const endPoint = coordinates[pointIndex + 1];
+      const t = (progress * (coordinates.length - 1)) % 1;
       
       const currentLat = startPoint.lat + (endPoint.lat - startPoint.lat) * t;
       const currentLng = startPoint.lng + (endPoint.lng - startPoint.lng) * t;
@@ -249,9 +291,9 @@ const VideoGeotagging: React.FC<VideoGeotaggingProps> = ({ onRatingSubmitted }) 
           <Card className="p-4">
             <h3 className="text-lg font-semibold mb-2">Analysis Results</h3>
             <div className="space-y-2">
-              <p>Location: Near {NH1_COORDINATES[locationIndexRef.current] ? 
-                `NH1 (${getLocationName(locationIndexRef.current)})` : 
-                'NH1 Highway'}</p>
+              <p>Location: {coordinates[locationIndexRef.current] ? 
+                `Lat: ${coordinates[locationIndexRef.current].lat.toFixed(4)}, Lng: ${coordinates[locationIndexRef.current].lng.toFixed(4)}` : 
+                'Processing...'}</p>
               <p>Defects found: {currentAnalysis.defectCount}</p>
               <p>Road quality: <span className={cn(
                 "font-semibold",
@@ -280,11 +322,5 @@ const VideoGeotagging: React.FC<VideoGeotaggingProps> = ({ onRatingSubmitted }) 
     </div>
   );
 };
-
-// Helper function to get location name based on index
-function getLocationName(index: number): string {
-  const locations = ["Delhi", "Sonipat", "Panipat", "Karnal", "Kurukshetra", "Ambala", "Chandigarh", "Jalandhar", "Amritsar"];
-  return locations[index] || "Unknown";
-}
 
 export default VideoGeotagging;
