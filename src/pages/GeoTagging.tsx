@@ -13,7 +13,7 @@ interface GeoTaggingProps {
 }
 
 const GeoTagging: React.FC<GeoTaggingProps> = ({ onRatingSubmitted }) => {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
   
@@ -95,23 +95,46 @@ const GeoTagging: React.FC<GeoTaggingProps> = ({ onRatingSubmitted }) => {
         videoElement.srcObject = stream;
       }
       
-      // Start location tracking
+      // Start location tracking with better options
       const watchId = navigator.geolocation.watchPosition(
         position => {
-          setCoordinates({
+          const newCoordinates = {
             latitude: position.coords.latitude,
             longitude: position.coords.longitude
-          });
+          };
+          console.log("Updated coordinates:", newCoordinates);
+          setCoordinates(newCoordinates);
+          
+          // Save coordinates to localStorage for immediate access
+          localStorage.setItem('currentCoordinates', JSON.stringify(newCoordinates));
         },
         error => {
           console.error("Error watching position:", error);
+          let errorMessage = "Failed to track location";
+          
+          switch (error.code) {
+            case error.PERMISSION_DENIED:
+              errorMessage = "Location permission denied. Please enable location access.";
+              break;
+            case error.POSITION_UNAVAILABLE:
+              errorMessage = "Location information unavailable. Please check your GPS.";
+              break;
+            case error.TIMEOUT:
+              errorMessage = "Location request timed out. Please try again.";
+              break;
+          }
+          
           toast({
             title: "Location error",
-            description: "Failed to track location",
+            description: errorMessage,
             variant: "destructive",
           });
         },
-        { enableHighAccuracy: true }
+        { 
+          enableHighAccuracy: true,
+          timeout: 10000, // 10 seconds timeout
+          maximumAge: 0
+        }
       );
       
       setLocationWatcher(watchId);
@@ -167,59 +190,82 @@ const GeoTagging: React.FC<GeoTaggingProps> = ({ onRatingSubmitted }) => {
   };
 
   const captureImage = async () => {
-    // Get fresh coordinates for this capture
-    const position = await new Promise<GeolocationPosition>((resolve, reject) => {
-      navigator.geolocation.getCurrentPosition(resolve, reject, {
-        enableHighAccuracy: true,
-        timeout: 5000,
-        maximumAge: 0
-      });
-    });
+    // Try to get coordinates from localStorage first
+    const storedCoords = localStorage.getItem('currentCoordinates');
+    const currentCoords = storedCoords ? JSON.parse(storedCoords) : coordinates;
     
-    const currentCoordinates = {
-      latitude: position.coords.latitude,
-      longitude: position.coords.longitude
-    };
-    
+    if (!currentCoords) {
+      console.warn("No coordinates available, skipping capture");
+      return;
+    }
+
     const videoElement = document.getElementById('camera-feed') as HTMLVideoElement;
+    if (!videoElement) {
+      console.error("Video element not found");
+      return;
+    }
+
     const canvas = document.createElement('canvas');
     canvas.width = videoElement.videoWidth;
     canvas.height = videoElement.videoHeight;
     
     const context = canvas.getContext('2d');
-    if (context) {
+    if (!context) {
+      console.error("Could not get canvas context");
+      return;
+    }
+
+    try {
       context.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
       
       // Convert to base64
       const imageData = canvas.toDataURL('image/jpeg');
       
-      try {
-        // Analyze road quality using YOLO model
-        const analysis = await analyzeRoadImage(imageData);
-        
-        // Send to API with analysis results
-        await api.submitRoadRating(currentCoordinates, analysis.quality, imageData);
-        console.log("Road rating submitted:", analysis.quality, currentCoordinates);
-        
-        // Show notification about road quality
-        toast({
-          title: "Road Quality Analysis",
-          description: `Road quality: ${analysis.quality.toUpperCase()}\nDefects found: ${analysis.defectCount}`,
-          variant: analysis.quality === 'good' ? 'default' : 'destructive',
-        });
-        
-        // Update the map if callback is provided
-        if (onRatingSubmitted) {
-          onRatingSubmitted();
-        }
-      } catch (error) {
-        console.error("Error submitting rating:", error);
-        toast({
-          title: "Error",
-          description: "Failed to analyze road quality",
-          variant: "destructive",
-        });
+      // Analyze road quality using YOLO model
+      const analysis = await analyzeRoadImage(imageData);
+      
+      // Create new road quality data
+      const roadQualityData = {
+        id: Date.now().toString(),
+        latitude: currentCoords.latitude,
+        longitude: currentCoords.longitude,
+        quality: analysis.quality,
+        imageUrl: imageData,
+        timestamp: new Date().toISOString(),
+        userId: user?.id
+      };
+      
+      // Get existing data from localStorage
+      const existingData = localStorage.getItem('roadQualityData');
+      const roadQualityStore = existingData ? JSON.parse(existingData) : [];
+      
+      // Add new data
+      roadQualityStore.push(roadQualityData);
+      
+      // Save to localStorage
+      localStorage.setItem('roadQualityData', JSON.stringify(roadQualityStore));
+      
+      // Trigger storage event for map update
+      window.dispatchEvent(new Event('storage'));
+      
+      // Send to API with analysis results
+      await api.submitRoadRating(currentCoords, analysis.quality, imageData);
+      
+      if (onRatingSubmitted) {
+        onRatingSubmitted();
       }
+      
+      toast({
+        title: "Image captured",
+        description: `Road quality: ${analysis.quality}`,
+      });
+    } catch (error) {
+      console.error("Error capturing image:", error);
+      toast({
+        title: "Capture error",
+        description: "Failed to capture and analyze image",
+        variant: "destructive",
+      });
     }
   };
 

@@ -1,10 +1,11 @@
-
 import React, { useEffect, useState } from 'react';
-import { MapContainer, TileLayer, Polyline, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, CircleMarker, useMap, Popup } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import api, { RoadRating } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { Card } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 
 // Fix Leaflet marker icon issue
 import icon from 'leaflet/dist/images/marker-icon.png';
@@ -113,53 +114,6 @@ const MapComponent = () => {
     fetchRoadRatings();
   }, []);
 
-  // Generate the road segments (25m before and 25m after) for each rating point
-  const roadSegments = roadRatings.map((rating, index) => {
-    let bearing = 0;
-    
-    // Calculate bearing if we have adjacent points
-    if (index < roadRatings.length - 1) {
-      bearing = calculateBearing(
-        rating.coordinates.latitude,
-        rating.coordinates.longitude,
-        roadRatings[index + 1].coordinates.latitude,
-        roadRatings[index + 1].coordinates.longitude
-      );
-    } else if (index > 0) {
-      bearing = calculateBearing(
-        roadRatings[index - 1].coordinates.latitude,
-        roadRatings[index - 1].coordinates.longitude,
-        rating.coordinates.latitude,
-        rating.coordinates.longitude
-      );
-    }
-    
-    // Calculate points 25m before and 25m after along the bearing
-    const startPoint = calculateDestinationPoint(
-      rating.coordinates.latitude,
-      rating.coordinates.longitude,
-      -25, // 25m behind
-      bearing
-    );
-    
-    const endPoint = calculateDestinationPoint(
-      rating.coordinates.latitude,
-      rating.coordinates.longitude,
-      25, // 25m ahead
-      bearing
-    );
-    
-    // Return the polyline positions and road rating
-    return {
-      id: rating.id,
-      positions: [
-        [startPoint.lat, startPoint.lng],
-        [endPoint.lat, endPoint.lng],
-      ] as [number, number][],
-      rating: rating.rating,
-    };
-  });
-
   // Default position (fallback if no data)
   const defaultPosition: [number, number] = [40.7128, -74.0060]; // New York City
 
@@ -174,10 +128,10 @@ const MapComponent = () => {
   // Map rating to color
   const getRoadColor = (rating: 'good' | 'fair' | 'poor') => {
     switch (rating) {
-      case 'good': return '#F2FCE2'; // green
-      case 'fair': return '#FEF7CD'; // yellow
-      case 'poor': return '#ea384c'; // red
-      default: return '#F2FCE2';
+      case 'good': return '#22c55e'; // green
+      case 'fair': return '#eab308'; // yellow
+      case 'poor': return '#ef4444'; // red
+      default: return '#22c55e';
     }
   };
 
@@ -202,21 +156,71 @@ const MapComponent = () => {
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
           
-          {roadSegments.map((segment) => (
-            <Polyline
-              key={segment.id}
-              positions={segment.positions}
+          {roadRatings.map((rating) => (
+            <CircleMarker
+              key={rating.id}
+              center={[rating.coordinates.latitude, rating.coordinates.longitude]}
+              radius={6}
               pathOptions={{
-                color: getRoadColor(segment.rating),
-                weight: 8,
-                opacity: 0.7,
+                color: getRoadColor(rating.rating),
+                fillColor: getRoadColor(rating.rating),
+                fillOpacity: 0.8,
               }}
-            />
+            >
+              <Popup>
+                <Card className="p-2">
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <span>Road Quality:</span>
+                      <Badge
+                        variant={
+                          rating.rating === 'good'
+                            ? 'default'
+                            : rating.rating === 'fair'
+                            ? 'outline'
+                            : 'destructive'
+                        }
+                      >
+                        {rating.rating.toUpperCase()}
+                      </Badge>
+                    </div>
+                    {rating.imageUrl && (
+                      <img
+                        src={rating.imageUrl}
+                        alt="Road condition"
+                        className="w-full h-32 object-cover rounded-md"
+                      />
+                    )}
+                    <p className="text-sm text-gray-500">
+                      {new Date(rating.timestamp).toLocaleString()}
+                    </p>
+                  </div>
+                </Card>
+              </Popup>
+            </CircleMarker>
           ))}
           
           <AutoFitBounds roadRatings={roadRatings} />
         </MapContainer>
       )}
+
+      {/* Legend */}
+      <div className="absolute bottom-4 right-4 bg-white p-2 rounded-lg shadow-lg z-[1000]">
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded-full bg-[#22c55e]"></div>
+            <span>Good</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded-full bg-[#eab308]"></div>
+            <span>Fair</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded-full bg-[#ef4444]"></div>
+            <span>Poor</span>
+          </div>
+        </div>
+      </div>
     </div>
   );
 };

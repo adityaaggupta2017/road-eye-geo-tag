@@ -1,4 +1,3 @@
-
 // API client for interacting with the backend
 
 export interface Coordinates {
@@ -12,6 +11,7 @@ export interface RoadRating {
   rating: 'good' | 'fair' | 'poor';
   timestamp: string;
   userId: string;
+  imageUrl?: string;
 }
 
 export interface User {
