@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
@@ -7,8 +6,13 @@ import { Button } from '@/components/ui/button';
 import { Camera, MapPin } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import api, { Coordinates } from '@/lib/api';
+import { analyzeRoadImage } from '@/lib/yoloModel';
 
-const GeoTagging = () => {
+interface GeoTaggingProps {
+  onRatingSubmitted?: () => void;
+}
+
+const GeoTagging: React.FC<GeoTaggingProps> = ({ onRatingSubmitted }) => {
   const { isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -163,10 +167,19 @@ const GeoTagging = () => {
   };
 
   const captureImage = async () => {
-    if (!coordinates) {
-      console.error("No location data available");
-      return;
-    }
+    // Get fresh coordinates for this capture
+    const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(resolve, reject, {
+        enableHighAccuracy: true,
+        timeout: 5000,
+        maximumAge: 0
+      });
+    });
+    
+    const currentCoordinates = {
+      latitude: position.coords.latitude,
+      longitude: position.coords.longitude
+    };
     
     const videoElement = document.getElementById('camera-feed') as HTMLVideoElement;
     const canvas = document.createElement('canvas');
@@ -181,15 +194,31 @@ const GeoTagging = () => {
       const imageData = canvas.toDataURL('image/jpeg');
       
       try {
-        // Generate a random rating for demonstration (in real app this would be AI-based)
-        const ratings = ['good', 'fair', 'poor'] as const;
-        const randomRating = ratings[Math.floor(Math.random() * ratings.length)];
+        // Analyze road quality using YOLO model
+        const analysis = await analyzeRoadImage(imageData);
         
-        // Send to API
-        await api.submitRoadRating(coordinates, randomRating, imageData);
-        console.log("Road rating submitted:", randomRating, coordinates);
+        // Send to API with analysis results
+        await api.submitRoadRating(currentCoordinates, analysis.quality, imageData);
+        console.log("Road rating submitted:", analysis.quality, currentCoordinates);
+        
+        // Show notification about road quality
+        toast({
+          title: "Road Quality Analysis",
+          description: `Road quality: ${analysis.quality.toUpperCase()}\nDefects found: ${analysis.defectCount}`,
+          variant: analysis.quality === 'good' ? 'default' : 'destructive',
+        });
+        
+        // Update the map if callback is provided
+        if (onRatingSubmitted) {
+          onRatingSubmitted();
+        }
       } catch (error) {
         console.error("Error submitting rating:", error);
+        toast({
+          title: "Error",
+          description: "Failed to analyze road quality",
+          variant: "destructive",
+        });
       }
     }
   };
@@ -251,7 +280,9 @@ const GeoTagging = () => {
                 id="camera-feed" 
                 autoPlay 
                 playsInline
-                className="w-full h-auto rounded-md"
+                muted
+                className="w-full h-[500px] object-cover rounded-md"
+                style={{ transform: 'scaleX(-1)' }} // Mirror the video for better UX
               ></video>
               
               {coordinates && (
@@ -263,7 +294,7 @@ const GeoTagging = () => {
           )}
           
           {!isCapturing && (
-            <div className="bg-muted h-64 rounded-lg flex items-center justify-center">
+            <div className="bg-muted h-[500px] rounded-lg flex items-center justify-center">
               <div className="text-center">
                 <Camera className="h-12 w-12 text-muted-foreground mx-auto mb-2" />
                 <p className="text-muted-foreground">

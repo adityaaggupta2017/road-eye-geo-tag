@@ -45,6 +45,22 @@ const CameraComponent: React.FC<CameraComponentProps> = ({
     };
   }, []);
 
+  useEffect(() => {
+    if (videoRef.current && stream) {
+      videoRef.current.srcObject = stream;
+      videoRef.current.onloadedmetadata = () => {
+        videoRef.current?.play().catch(error => {
+          console.error('Error playing video:', error);
+          toast({
+            title: "Video Stream Error",
+            description: "Failed to start video stream",
+            variant: "destructive",
+          });
+        });
+      };
+    }
+  }, [stream]);
+
   const requestLocationPermission = () => {
     if ('geolocation' in navigator) {
       navigator.geolocation.getCurrentPosition(
