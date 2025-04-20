@@ -1,5 +1,4 @@
-
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Camera } from 'lucide-react';
@@ -11,9 +10,10 @@ const DemoImageUpload = () => {
   const [analysis, setAnalysis] = useState<{
     defectCount: number;
     quality: 'good' | 'fair' | 'poor';
-    defects: Array<{type: string, confidence: number}>;
+    defects: Array<{type: string, confidence: number, bbox: [number, number, number, number]}>;
   } | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -57,17 +57,75 @@ const DemoImageUpload = () => {
     }
   };
 
+  useEffect(() => {
+    if (selectedImage && analysis && canvasRef.current) {
+      const canvas = canvasRef.current;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      const img = new Image();
+      img.onload = () => {
+        // Set canvas size to match image
+        canvas.width = img.width;
+        canvas.height = img.height;
+
+        // Clear previous drawings
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Draw bounding boxes for each defect
+        analysis.defects.forEach((defect) => {
+          const [x, y, width, height] = defect.bbox;
+          
+          // Scale coordinates to match image size
+          const scaleX = canvas.width / 640;
+          const scaleY = canvas.height / 640;
+          
+          const scaledX = x * scaleX;
+          const scaledY = y * scaleY;
+          const scaledWidth = width * scaleX;
+          const scaledHeight = height * scaleY;
+
+          // Draw rectangle
+          ctx.strokeStyle = 'red';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(scaledX, scaledY, scaledWidth, scaledHeight);
+
+          // Draw label with background
+          const label = `${defect.type} (${(defect.confidence * 100).toFixed(1)}%)`;
+          ctx.font = '14px Arial';
+          const textWidth = ctx.measureText(label).width;
+          
+          // Draw label background
+          ctx.fillStyle = 'rgba(255, 0, 0, 0.7)';
+          ctx.fillRect(scaledX, scaledY - 20, textWidth + 10, 20);
+          
+          // Draw label text
+          ctx.fillStyle = 'white';
+          ctx.fillText(label, scaledX + 5, scaledY - 5);
+        });
+      };
+      img.src = selectedImage;
+    }
+  }, [selectedImage, analysis]);
+
   return (
     <div className="space-y-4">
       <Card className="p-4">
         <div className="flex flex-col items-center gap-4">
-          <div className="w-full max-w-xl aspect-video bg-muted rounded-lg overflow-hidden">
+          <div className="w-full max-w-xl aspect-video bg-muted rounded-lg overflow-hidden relative">
             {selectedImage ? (
-              <img 
-                src={selectedImage} 
-                alt="Selected road" 
-                className="w-full h-full object-cover"
-              />
+              <>
+                <img 
+                  src={selectedImage} 
+                  alt="Selected road" 
+                  className="w-full h-full object-cover"
+                />
+                <canvas
+                  ref={canvasRef}
+                  className="absolute top-0 left-0 w-full h-full"
+                  style={{ pointerEvents: 'none' }}
+                />
+              </>
             ) : (
               <div className="w-full h-full flex items-center justify-center">
                 <Camera className="h-12 w-12 text-muted-foreground" />
