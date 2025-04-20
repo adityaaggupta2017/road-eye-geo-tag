@@ -1,4 +1,3 @@
-
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -11,6 +10,8 @@ import SignUp from "./pages/SignUp";
 import GeoTagging from "./pages/GeoTagging";
 import DemoDetection from "./pages/DemoDetection";
 import GeoTagDemo from "./pages/GeoTagDemo";
+import VideoAnalysis from "./pages/VideoAnalysis";
+import AnalysisResults from "./pages/AnalysisResults";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -27,6 +28,8 @@ const App = () => (
             <Route path="/geotagging" element={<GeoTagging />} />
             <Route path="/demo" element={<DemoDetection />} />
             <Route path="/geotag-demo" element={<GeoTagDemo />} />
+            <Route path="/video-analysis" element={<VideoAnalysis />} />
+            <Route path="/analysis-results/:analysisId" element={<AnalysisResults />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
           <Toaster />

@@ -1,9 +1,8 @@
-
 import React from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
-import { LogIn, LogOut, Camera, MapPin, UserPlus } from 'lucide-react';
+import { LogIn, LogOut, Camera, MapPin, UserPlus, Video } from 'lucide-react';
 
 const Navbar = () => {
   const { user, logout, isAuthenticated } = useAuth();
@@ -28,19 +27,19 @@ const Navbar = () => {
               <Link to="/geotagging" className="flex items-center gap-1">
                 <Button variant="outline" className="flex items-center gap-2">
                   <Camera className="h-4 w-4" />
-                  <span>Start Geotagging</span>
+                  <span>Geotagging</span>
+                </Button>
+              </Link>
+              <Link to="/video-analysis">
+                <Button variant="outline" className="flex items-center gap-2">
+                  <Video className="h-4 w-4" />
+                  <span>Video Analysis</span>
                 </Button>
               </Link>
               <Link to="/demo">
                 <Button variant="outline" className="flex items-center gap-2">
                   <MapPin className="h-4 w-4" />
                   <span>Demo Detection</span>
-                </Button>
-              </Link>
-              <Link to="/geotag-demo">
-                <Button variant="outline" className="flex items-center gap-2">
-                  <MapPin className="h-4 w-4" />
-                  <span>Demo Geotagging</span>
                 </Button>
               </Link>
               <Button variant="ghost" onClick={handleLogout} className="flex items-center gap-2">
