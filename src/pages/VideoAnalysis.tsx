@@ -6,7 +6,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
 import { useToast } from '@/components/ui/use-toast';
-import { MapPin, Upload, Video } from 'lucide-react';
+import { MapPin, Upload, Video, Map } from 'lucide-react';
+import { Label } from '@/components/ui/label';
 import axios from 'axios';
 
 const VideoAnalysis = () => {
@@ -17,6 +18,8 @@ const VideoAnalysis = () => {
   
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [videoPreviewUrl, setVideoPreviewUrl] = useState<string | null>(null);
+  const [roadName, setRoadName] = useState('');
+  const [roadLocation, setRoadLocation] = useState('');
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -143,6 +146,24 @@ const VideoAnalysis = () => {
       return;
     }
     
+    if (!roadName.trim()) {
+      toast({
+        title: "Road name required",
+        description: "Please enter the name of the road in the video",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    if (!roadLocation.trim()) {
+      toast({
+        title: "Location required",
+        description: "Please enter the location or city of the road",
+        variant: "destructive",
+      });
+      return;
+    }
+    
     setIsUploading(true);
     setUploadProgress(0);
     setPollAttempts(0);
@@ -151,6 +172,8 @@ const VideoAnalysis = () => {
       // Create form data
       const formData = new FormData();
       formData.append('video', videoFile);
+      formData.append('road_name', roadName);
+      formData.append('road_location', roadLocation);
       
       // Upload video with progress tracking
       const response = await axios.post('http://localhost:5000/upload-video', formData, {
@@ -217,6 +240,36 @@ const VideoAnalysis = () => {
             </p>
             
             <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="road-name" className="text-sm font-medium">
+                    Road Name
+                  </Label>
+                  <Input
+                    id="road-name"
+                    value={roadName}
+                    onChange={(e) => setRoadName(e.target.value)}
+                    placeholder="Enter road name (e.g., MG Road, NH-8)"
+                    className="mt-1"
+                    disabled={isUploading || isAnalyzing}
+                  />
+                </div>
+                
+                <div>
+                  <Label htmlFor="road-location" className="text-sm font-medium">
+                    City/Location
+                  </Label>
+                  <Input
+                    id="road-location"
+                    value={roadLocation}
+                    onChange={(e) => setRoadLocation(e.target.value)}
+                    placeholder="Enter city or area (e.g., Delhi, Mumbai)"
+                    className="mt-1"
+                    disabled={isUploading || isAnalyzing}
+                  />
+                </div>
+              </div>
+              
               <div className="flex items-center gap-2">
                 <Button
                   onClick={() => videoInputRef.current?.click()}
@@ -266,18 +319,25 @@ const VideoAnalysis = () => {
                 </div>
               )}
               
-              <Button 
-                onClick={handleUpload}
-                disabled={!videoFile || isUploading || isAnalyzing}
-                className="flex items-center gap-2"
-              >
-                <Upload className="h-4 w-4" />
-                {isUploading
-                  ? "Uploading..."
-                  : isAnalyzing
-                  ? "Analyzing..."
-                  : "Upload & Analyze"}
-              </Button>
+              <div className="flex justify-between items-center">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Map className="h-4 w-4" />
+                  <span>Geotags will be fetched for the specified road</span>
+                </div>
+                
+                <Button 
+                  onClick={handleUpload}
+                  disabled={!videoFile || !roadName.trim() || !roadLocation.trim() || isUploading || isAnalyzing}
+                  className="flex items-center gap-2"
+                >
+                  <Upload className="h-4 w-4" />
+                  {isUploading
+                    ? "Uploading..."
+                    : isAnalyzing
+                    ? "Analyzing..."
+                    : "Upload & Analyze"}
+                </Button>
+              </div>
             </div>
           </div>
         </div>

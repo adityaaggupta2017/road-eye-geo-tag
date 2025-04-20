@@ -11,6 +11,7 @@ import uuid
 import time
 import json
 import logging
+import requests
 from datetime import datetime
 from ultralytics import YOLO
 import tempfile
@@ -47,6 +48,268 @@ model = YOLO(model_path)
 
 # Store active analyses
 active_analyses = {}
+
+def fetch_road_coordinates(road_name, location):
+    """
+    Fetch road coordinates using both Nominatim and Overpass API for more accurate results.
+    
+    Args:
+        road_name: Name of the road (e.g., "MG Road")
+        location: Location/city of the road (e.g., "Bangalore")
+        
+    Returns:
+        List of coordinate points as (latitude, longitude) tuples
+    """
+    try:
+        # First, use Nominatim to find the general area
+        search_query = f"{road_name}, {location}, India"
+        logger.info(f"Searching for location: {search_query}")
+        
+        # Use Nominatim API to get the area
+        nominatim_url = "https://nominatim.openstreetmap.org/search"
+        params = {
+            "q": search_query,
+            "format": "json",
+            "limit": 1
+        }
+        headers = {
+            "User-Agent": "RoadQualityAnalyzer/1.0"
+        }
+        
+        response = requests.get(nominatim_url, params=params, headers=headers)
+        
+        if response.status_code != 200 or not response.json():
+            logger.warning(f"No location found for {search_query}, using fallback method")
+            return fallback_road_search(road_name, location)
+        
+        area_data = response.json()[0]
+        lat = float(area_data["lat"])
+        lon = float(area_data["lon"])
+        
+        logger.info(f"Found area center at: {lat}, {lon}")
+        
+        # Now use Overpass API to find the actual road within this area
+        # This search looks for highways with the given name in a 2km radius
+        overpass_url = "https://overpass-api.de/api/interpreter"
+        
+        # Prepare Overpass query to find roads with matching name
+        road_name_cleaned = road_name.replace("Road", "").strip()  # Clean up the road name
+        
+        overpass_query = f"""
+        [out:json];
+        (
+          way["highway"](around:2000,{lat},{lon})[name~"{road_name_cleaned}|{road_name}",i];
+        );
+        out body geom;
+        """
+        
+        logger.info(f"Searching for roads using Overpass with query: {overpass_query}")
+        
+        overpass_response = requests.post(overpass_url, data={"data": overpass_query})
+        
+        if overpass_response.status_code != 200:
+            logger.warning(f"Overpass API failed with status {overpass_response.status_code}")
+            return fallback_road_search(road_name, location)
+        
+        overpass_data = overpass_response.json()
+        
+        # Process road data
+        if "elements" in overpass_data and overpass_data["elements"]:
+            roads = overpass_data["elements"]
+            logger.info(f"Found {len(roads)} road segments from Overpass API")
+            
+            # Find the most relevant road (usually the longest)
+            best_road = max(roads, key=lambda r: len(r.get("geometry", [])))
+            
+            # Extract coordinates
+            coordinates = []
+            for point in best_road.get("geometry", []):
+                coordinates.append((float(point["lat"]), float(point["lon"])))
+            
+            # Ensure we have enough points (between 10-50)
+            if len(coordinates) > 50:
+                # Sample points evenly if too many
+                indices = np.round(np.linspace(0, len(coordinates) - 1, 50)).astype(int)
+                coordinates = [coordinates[i] for i in indices]
+            elif len(coordinates) < 10 and len(coordinates) > 0:
+                # Interpolate if too few points
+                original_coords = np.array(coordinates)
+                num_points = 20
+                
+                # Create a parameter along the curve
+                t = np.linspace(0, 1, len(original_coords))
+                # Create a new parameter with more points
+                t_new = np.linspace(0, 1, num_points)
+                
+                # Interpolate each coordinate
+                x_coords = np.interp(t_new, t, original_coords[:, 0])
+                y_coords = np.interp(t_new, t, original_coords[:, 1])
+                
+                coordinates = [(x_coords[i], y_coords[i]) for i in range(num_points)]
+            
+            if coordinates:
+                logger.info(f"Successfully found road coordinates: {len(coordinates)} points")
+                return coordinates
+        
+        # If Overpass didn't find specific road data, try the fallback method
+        logger.warning("No specific road geometry found, trying fallback method")
+        return fallback_road_search(road_name, location)
+        
+    except Exception as e:
+        logger.error(f"Error fetching road coordinates: {str(e)}")
+        return generate_default_coordinates()
+
+def fallback_road_search(road_name, location):
+    """
+    Fallback method to find road coordinates using Nominatim with geojson.
+    """
+    try:
+        # Try again with Nominatim but request full geometry
+        search_query = f"{road_name}, {location}, India"
+        logger.info(f"Using fallback search for: {search_query}")
+        
+        nominatim_url = "https://nominatim.openstreetmap.org/search"
+        params = {
+            "q": search_query,
+            "format": "json",
+            "polygon_geojson": 1,
+            "limit": 1
+        }
+        headers = {
+            "User-Agent": "RoadQualityAnalyzer/1.0"
+        }
+        
+        response = requests.get(nominatim_url, params=params, headers=headers)
+        
+        if response.status_code != 200:
+            logger.error(f"Fallback search failed with status {response.status_code}")
+            return generate_default_coordinates()
+        
+        data = response.json()
+        
+        if not data:
+            logger.warning(f"No fallback results for {search_query}")
+            return generate_default_coordinates()
+        
+        result = data[0]
+        
+        # If we have geometry data
+        if "geojson" in result:
+            coordinates = []
+            geojson = result["geojson"]
+            
+            if geojson["type"] == "LineString":
+                # For LineString, coordinates are already a list of points
+                for point in geojson["coordinates"]:
+                    # OpenStreetMap returns [lon, lat], but we need [lat, lon]
+                    coordinates.append((float(point[1]), float(point[0])))
+            
+            elif geojson["type"] == "MultiLineString":
+                # For MultiLineString, coordinates are a list of LineStrings
+                for line in geojson["coordinates"]:
+                    for point in line:
+                        coordinates.append((float(point[1]), float(point[0])))
+            
+            elif geojson["type"] == "Polygon":
+                # For Polygon, use the exterior ring
+                for point in geojson["coordinates"][0]:
+                    coordinates.append((float(point[1]), float(point[0])))
+            
+            if coordinates:
+                # Limit to 50 points maximum
+                if len(coordinates) > 50:
+                    indices = np.round(np.linspace(0, len(coordinates) - 1, 50)).astype(int)
+                    coordinates = [coordinates[i] for i in indices]
+                
+                logger.info(f"Found {len(coordinates)} coordinate points from geojson")
+                return coordinates
+        
+        # If we don't have geometry data, use the bounding box to generate points
+        if "boundingbox" in result:
+            bbox = result["boundingbox"]
+            south_lat = float(bbox[0])
+            north_lat = float(bbox[1])
+            west_lon = float(bbox[2])
+            east_lon = float(bbox[3])
+            
+            # Get the centroid
+            center_lat = (north_lat + south_lat) / 2
+            center_lon = (east_lon + west_lon) / 2
+            
+            # Generate a line through the center of the bounding box
+            num_points = 20
+            
+            # Determine the longer dimension of the bounding box
+            lat_range = north_lat - south_lat
+            lon_range = east_lon - west_lon
+            
+            coordinates = []
+            if lon_range > lat_range:
+                # Generate an east-west line
+                for i in range(num_points):
+                    lon = west_lon + (i / (num_points - 1)) * lon_range
+                    coordinates.append((center_lat, lon))
+            else:
+                # Generate a north-south line
+                for i in range(num_points):
+                    lat = south_lat + (i / (num_points - 1)) * lat_range
+                    coordinates.append((lat, center_lon))
+            
+            logger.info(f"Generated {len(coordinates)} coordinate points from bounding box")
+            return coordinates
+        
+        # If we just have a single point, generate a small line around it
+        lat = float(result["lat"])
+        lon = float(result["lon"])
+        
+        # Generate a small line (500m in each direction) around the point
+        coordinates = []
+        for i in range(20):
+            # Each step is roughly 50m
+            offset = (i - 10) * 0.0005  # about 50m per 0.0005 degrees
+            coordinates.append((lat, lon + offset))  # East-West line
+        
+        logger.info(f"Generated {len(coordinates)} coordinate points around center")
+        return coordinates
+    
+    except Exception as e:
+        logger.error(f"Error in fallback search: {str(e)}")
+        return generate_default_coordinates()
+
+def generate_default_coordinates():
+    """Generate default coordinates for fallback (centered at India)"""
+    logger.warning("Using default coordinates")
+    
+    # Default coordinates (centered around Delhi, India)
+    start_lat = 28.6139  # Delhi latitude
+    start_lng = 77.2090  # Delhi longitude
+    
+    coordinates = []
+    
+    # Direction (degrees) - East
+    direction = 90
+    
+    # Generate 20 points
+    segment_distance = 0.0005  # About 50m per point
+    
+    for i in range(20):
+        # Calculate point based on direction and distance
+        dx = segment_distance * math.cos(math.radians(direction))
+        dy = segment_distance * math.sin(math.radians(direction))
+        
+        lat = start_lat + dy
+        lng = start_lng + dx
+        
+        coordinates.append((start_lat, start_lng))
+        
+        # Update for next point
+        start_lat = lat
+        start_lng = lng
+        
+        # Slightly change direction for natural road curve
+        direction += np.random.uniform(-5, 5)
+    
+    return coordinates
 
 @app.route('/analyze', methods=['POST'])
 def analyze_image():
@@ -110,6 +373,16 @@ def upload_video():
                 'error': 'No selected file'
             }), 400
         
+        # Get road name and location from form data
+        road_name = request.form.get('road_name', '')
+        road_location = request.form.get('road_location', '')
+        
+        if not road_name or not road_location:
+            return jsonify({
+                'success': False,
+                'error': 'Road name and location are required'
+            }), 400
+        
         # Generate unique ID for this analysis
         analysis_id = str(uuid.uuid4())
         timestamp = datetime.now().isoformat()
@@ -119,6 +392,7 @@ def upload_video():
         video_file.save(video_path)
         
         logger.info(f"Video uploaded with ID: {analysis_id}, path: {video_path}")
+        logger.info(f"Road information: {road_name}, {road_location}")
         
         # Create entry in active analyses
         active_analyses[analysis_id] = {
@@ -126,13 +400,15 @@ def upload_video():
             'timestamp': timestamp,
             'video_name': video_file.filename,
             'video_path': video_path,
+            'road_name': road_name,
+            'road_location': road_location
         }
         
         # Log the active analyses
         logger.info(f"Active analyses: {list(active_analyses.keys())}")
         
         # Start analysis in background thread
-        analysis_thread = threading.Thread(target=process_video, args=(analysis_id, video_path))
+        analysis_thread = threading.Thread(target=process_video, args=(analysis_id, video_path, road_name, road_location))
         analysis_thread.daemon = True
         analysis_thread.start()
         
@@ -152,9 +428,10 @@ def upload_video():
             'error': str(e)
         }), 500
 
-def process_video(analysis_id, video_path):
+def process_video(analysis_id, video_path, road_name, road_location):
     try:
         logger.info(f"Starting video processing for analysis ID: {analysis_id}")
+        logger.info(f"Road information: {road_name}, {road_location}")
         
         # Open the video file
         cap = cv2.VideoCapture(video_path)
@@ -171,13 +448,11 @@ def process_video(analysis_id, video_path):
         
         logger.info(f"Video info - FPS: {fps}, Frames: {frame_count}, Duration: {duration}s")
         
-        # For demo purposes, we'll generate mock geotags
-        # In a real implementation, you would extract geotags from the video metadata
-        # or use provided geotags
+        # Fetch road coordinates
+        logger.info(f"Fetching road coordinates for {road_name} in {road_location}")
+        road_coordinates = fetch_road_coordinates(road_name, road_location)
         
-        # Mock starting point somewhere in India
-        start_lat = 18.5204
-        start_lng = 73.8567
+        logger.info(f"Found {len(road_coordinates)} coordinates for the road")
         
         # Generate road segments with different conditions
         road_segments = []
@@ -188,13 +463,11 @@ def process_video(analysis_id, video_path):
         current_frame = 0
         segment_id = 0
         
-        # Road direction (degrees)
-        direction = 45
+        # Determine how many segments to create based on the number of coordinates
+        max_segments = min(len(road_coordinates) - 1, int(frame_count / sample_rate))
+        logger.info(f"Planning to create {max_segments} road segments")
         
-        # Distance between segments in degrees
-        segment_distance = 0.0005
-        
-        while current_frame < frame_count:
+        while current_frame < frame_count and segment_id < max_segments:
             cap.set(cv2.CAP_PROP_POS_FRAMES, current_frame)
             ret, frame = cap.read()
             
@@ -245,13 +518,9 @@ def process_video(analysis_id, video_path):
                 confidence = 0.7 + np.random.random() * 0.3
                 condition = np.random.choice(['good', 'fair', 'bad'], p=[0.7, 0.2, 0.1])
             
-            # Calculate coordinates for this segment
-            # In real implementation, these would come from video geotags
-            dx = segment_distance * math.cos(math.radians(direction))
-            dy = segment_distance * math.sin(math.radians(direction))
-            
-            end_lat = start_lat + dy
-            end_lng = start_lng + dx
+            # Get coordinates for this segment
+            start_lat, start_lng = road_coordinates[segment_id]
+            end_lat, end_lng = road_coordinates[segment_id + 1]
             
             road_segments.append({
                 'id': f'segment-{segment_id}',
@@ -266,13 +535,6 @@ def process_video(analysis_id, video_path):
                 'condition': condition,
                 'confidence': confidence
             })
-            
-            # Update start point for next segment
-            start_lat = end_lat
-            start_lng = end_lng
-            
-            # Slightly change direction for natural road curve
-            direction += np.random.uniform(-5, 5)
             
             current_frame += sample_rate
             segment_id += 1
@@ -292,6 +554,8 @@ def process_video(analysis_id, video_path):
             'id': analysis_id,
             'timestamp': active_analyses[analysis_id]['timestamp'],
             'videoName': active_analyses[analysis_id]['video_name'],
+            'roadName': road_name,
+            'roadLocation': road_location,
             'roadSegments': road_segments
         }
         
@@ -343,36 +607,37 @@ def generate_report(analysis_id, result_data):
         c.setFont('Helvetica', 12)
         c.drawString(50, height - 80, f"Analysis ID: {analysis_id}")
         c.drawString(50, height - 100, f"Video: {result_data['videoName']}")
-        c.drawString(50, height - 120, f"Date: {datetime.fromisoformat(result_data['timestamp']).strftime('%Y-%m-%d %H:%M:%S')}")
+        c.drawString(50, height - 120, f"Road: {result_data.get('roadName', 'N/A')} in {result_data.get('roadLocation', 'N/A')}")
+        c.drawString(50, height - 140, f"Date: {datetime.fromisoformat(result_data['timestamp']).strftime('%Y-%m-%d %H:%M:%S')}")
         
         # Statistics header
         c.setFont('Helvetica-Bold', 14)
-        c.drawString(50, height - 160, 'Road Condition Statistics')
+        c.drawString(50, height - 180, 'Road Condition Statistics')
         
         # Statistics content
         c.setFont('Helvetica', 12)
-        c.drawString(50, height - 180, f"Total Road Segments: {total_count}")
-        c.drawString(300, height - 180, f"Total Distance: {total_count * 0.05:.2f} km")
+        c.drawString(50, height - 200, f"Total Road Segments: {total_count}")
+        c.drawString(300, height - 200, f"Total Distance: {total_count * 0.05:.2f} km")
         
-        c.drawString(50, height - 200, f"Good: {good_count} ({good_percent:.1f}%)")
-        c.drawString(300, height - 200, f"Fair: {fair_count} ({fair_percent:.1f}%)")
-        c.drawString(50, height - 220, f"Bad: {bad_count} ({bad_percent:.1f}%)")
+        c.drawString(50, height - 220, f"Good: {good_count} ({good_percent:.1f}%)")
+        c.drawString(300, height - 220, f"Fair: {fair_count} ({fair_percent:.1f}%)")
+        c.drawString(50, height - 240, f"Bad: {bad_count} ({bad_percent:.1f}%)")
         
         # Recommendations header
         c.setFont('Helvetica-Bold', 14)
-        c.drawString(50, height - 260, 'Recommendations')
+        c.drawString(50, height - 280, 'Recommendations')
         
         # Recommendations content
         c.setFont('Helvetica', 12)
         if bad_count > (total_count * 0.3):
-            recommendation = 'High priority maintenance required. Multiple sections of the road are in poor condition and require immediate attention.'
+            recommendation = f'High priority maintenance required for {result_data.get("roadName", "this road")}. Multiple sections of the road are in poor condition and require immediate attention.'
         elif bad_count > (total_count * 0.1) or fair_count > (total_count * 0.3):
-            recommendation = 'Moderate maintenance recommended. Some sections of the road require repair to prevent further deterioration.'
+            recommendation = f'Moderate maintenance recommended for {result_data.get("roadName", "this road")}. Some sections of the road require repair to prevent further deterioration.'
         else:
-            recommendation = 'Low priority maintenance. The road is generally in good condition with minimal defects.'
+            recommendation = f'Low priority maintenance for {result_data.get("roadName", "this road")}. The road is generally in good condition with minimal defects.'
         
         # Split text to fit on page width
-        text_object = c.beginText(50, height - 280)
+        text_object = c.beginText(50, height - 300)
         text_object.setFont('Helvetica', 12)
         
         # Wrap text (simple approach)
@@ -415,6 +680,8 @@ def analysis_status(analysis_id):
             'status': 'processing',
             'timestamp': datetime.now().isoformat(),
             'video_name': 'dummy_video.mp4',
+            'road_name': 'Sample Road',
+            'road_location': 'Delhi',
             'progress': 10
         }
         
@@ -429,16 +696,18 @@ def analysis_status(analysis_id):
                     'id': aid,
                     'timestamp': active_analyses[aid]['timestamp'],
                     'videoName': active_analyses[aid]['video_name'],
+                    'roadName': active_analyses[aid]['road_name'],
+                    'roadLocation': active_analyses[aid]['road_location'],
                     'roadSegments': [
                         {
                             'id': 'segment-0',
                             'startCoordinates': {
-                                'latitude': 18.5204,
-                                'longitude': 73.8567
+                                'latitude': 28.6139,
+                                'longitude': 77.2090
                             },
                             'endCoordinates': {
-                                'latitude': 18.5205,
-                                'longitude': 73.8568
+                                'latitude': 28.6141,
+                                'longitude': 77.2095
                             },
                             'condition': 'good',
                             'confidence': 0.9

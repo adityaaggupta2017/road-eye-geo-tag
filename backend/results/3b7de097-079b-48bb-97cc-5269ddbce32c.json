@@ -1,0 +1,1 @@
+{"id": "3b7de097-079b-48bb-97cc-5269ddbce32c", "timestamp": "2025-04-20T16:45:45.161916", "videoName": "dummy_video.mp4", "roadName": "Sample Road", "roadLocation": "Delhi", "roadSegments": [{"id": "segment-0", "startCoordinates": {"latitude": 28.6139, "longitude": 77.209}, "endCoordinates": {"latitude": 28.6141, "longitude": 77.2095}, "condition": "good", "confidence": 0.9}]}

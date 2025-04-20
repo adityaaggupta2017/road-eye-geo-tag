@@ -26,6 +26,8 @@ L.Marker.prototype.options.icon = DefaultIcon;
 interface AnalysisResult {
   id: string;
   videoName: string;
+  roadName: string;
+  roadLocation: string;
   timestamp: string;
   roadSegments: RoadSegment[];
 }
@@ -206,10 +208,20 @@ const AnalysisResults: React.FC = () => {
             <div className="space-y-4">
               <div className="bg-card rounded-lg shadow-md p-4">
                 <h2 className="text-lg font-semibold mb-2">Analysis Summary</h2>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                   <div className="bg-muted rounded-md p-3">
                     <p className="text-sm text-muted-foreground">Video Name</p>
                     <p className="font-medium">{analysisResult.videoName}</p>
+                  </div>
+                  
+                  <div className="bg-muted rounded-md p-3">
+                    <p className="text-sm text-muted-foreground">Road Name</p>
+                    <p className="font-medium">{analysisResult.roadName || 'N/A'}</p>
+                  </div>
+                  
+                  <div className="bg-muted rounded-md p-3">
+                    <p className="text-sm text-muted-foreground">Location</p>
+                    <p className="font-medium">{analysisResult.roadLocation || 'N/A'}</p>
                   </div>
                   
                   <div className="bg-muted rounded-md p-3">
@@ -228,6 +240,9 @@ const AnalysisResults: React.FC = () => {
               
               <div className="bg-card rounded-lg shadow-md p-4">
                 <h2 className="text-lg font-semibold mb-2">Road Condition Map</h2>
+                <p className="text-sm text-muted-foreground mb-2">
+                  Analysis of {analysisResult.roadName} in {analysisResult.roadLocation}
+                </p>
                 <div className="h-[500px] rounded-md overflow-hidden">
                   <MapContainer
                     center={defaultCenter}
