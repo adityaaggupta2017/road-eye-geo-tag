@@ -1,25 +1,53 @@
 
-import React from 'react';
+import React, { useState } from 'react';
 import Navbar from '@/components/Navbar';
-import DemoImageUpload from '@/components/DemoImageUpload';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
+import { CameraComponent } from '@/components';
+import MapComponent from '@/components/MapComponent';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { MapPin } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 const DemoDetection = () => {
+  const [refreshMap, setRefreshMap] = useState(0);
+
+  // Callback when a new rating is submitted
+  const handleRatingSubmitted = () => {
+    // Increment to trigger map refresh
+    setRefreshMap(prev => prev + 1);
+  };
+
   return (
     <div className="min-h-screen flex flex-col">
       <Navbar />
-      <main className="flex-1 container mx-auto px-4 py-6">
-        <Card className="mb-6">
+      <main className="flex-1 p-4">
+        <Card className="mb-4">
           <CardHeader>
-            <CardTitle>Road Quality Demo Detection</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <MapPin className="text-primary h-5 w-5" />
+              Road Quality Detection Demo
+            </CardTitle>
             <CardDescription>
-              Upload a road image to test our YOLO-based defect detection model
+              Test the YOLO-based road defect detection system
             </CardDescription>
           </CardHeader>
-          <CardContent>
-            <DemoImageUpload />
-          </CardContent>
         </Card>
+        
+        <Tabs defaultValue="camera">
+          <TabsList className="mb-4">
+            <TabsTrigger value="camera">Camera</TabsTrigger>
+            <TabsTrigger value="map">Map Visualization</TabsTrigger>
+          </TabsList>
+          
+          <TabsContent value="camera">
+            <CameraComponent onRatingSubmitted={handleRatingSubmitted} />
+          </TabsContent>
+          
+          <TabsContent value="map">
+            <div className="h-[calc(100vh-250px)]">
+              <MapComponent key={refreshMap} />
+            </div>
+          </TabsContent>
+        </Tabs>
       </main>
     </div>
   );
