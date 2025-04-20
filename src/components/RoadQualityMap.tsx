@@ -87,9 +87,9 @@ export const RoadQualityMap: React.FC = () => {
                     <Badge
                       variant={
                         data.quality === 'good'
-                          ? 'success'
+                          ? 'default'
                           : data.quality === 'fair'
-                          ? 'warning'
+                          ? 'outline'
                           : 'destructive'
                       }
                     >

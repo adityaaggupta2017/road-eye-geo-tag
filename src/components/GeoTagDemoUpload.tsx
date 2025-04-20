@@ -216,8 +216,8 @@ const GeoTagDemoUpload = () => {
           <div className="space-y-2">
             <p>Defects found: {analysis.defectCount}</p>
             <p>Road quality: <Badge variant={
-              analysis.quality === 'good' ? 'success' :
-              analysis.quality === 'fair' ? 'warning' :
+              analysis.quality === 'good' ? 'default' :
+              analysis.quality === 'fair' ? 'outline' :
               'destructive'
             }>
               {analysis.quality.toUpperCase()}
