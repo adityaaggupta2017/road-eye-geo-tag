@@ -212,8 +212,8 @@ const GeoTagDemoUpload = () => {
       </Card>
 
       <LocationInput 
-        onLocationSet={setLocation} 
-        currentLocation={location}
+        initialLocation={location}
+        onLocationChange={setLocation}
       />
 
       {analysis && (

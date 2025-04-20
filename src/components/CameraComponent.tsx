@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -184,12 +183,14 @@ const CameraComponent: React.FC<CameraComponentProps> = ({
         setLastAnalysis(analysis);
         
         if (location) {
-          await api.submitRoadRating({
-            latitude: location.lat,
-            longitude: location.lng,
-            rating: analysis.quality,
-            timestamp: new Date().toISOString()
-          });
+          await api.submitRoadRating(
+            {
+              latitude: location.lat,
+              longitude: location.lng
+            },
+            analysis.quality,
+            imageData
+          );
           
           setTotalRatings(prev => prev + 1);
           
