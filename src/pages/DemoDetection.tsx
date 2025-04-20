@@ -6,6 +6,7 @@ import MapComponent from '@/components/MapComponent';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { MapPin } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import VideoGeotagging from '@/components/VideoGeotagging';
 
 const DemoDetection = () => {
   const [refreshMap, setRefreshMap] = useState(0);
@@ -36,16 +37,24 @@ const DemoDetection = () => {
           <TabsList className="mb-4">
             <TabsTrigger value="camera">Camera</TabsTrigger>
             <TabsTrigger value="map">Map Visualization</TabsTrigger>
+            <TabsTrigger value="video">Demo Video Geotagging</TabsTrigger>
           </TabsList>
           
           <TabsContent value="camera">
-            <CameraComponent onRatingSubmitted={handleRatingSubmitted} />
+            <CameraComponent 
+              onRatingSubmitted={handleRatingSubmitted} 
+              showImmediateResults={true}
+            />
           </TabsContent>
           
           <TabsContent value="map">
             <div className="h-[calc(100vh-250px)]">
               <MapComponent key={refreshMap} />
             </div>
+          </TabsContent>
+          
+          <TabsContent value="video">
+            <VideoGeotagging onRatingSubmitted={handleRatingSubmitted} />
           </TabsContent>
         </Tabs>
       </main>
