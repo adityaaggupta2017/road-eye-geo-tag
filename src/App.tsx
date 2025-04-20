@@ -9,6 +9,7 @@ import Index from "./pages/Index";
 import Login from "./pages/Login";
 import GeoTagging from "./pages/GeoTagging";
 import DemoDetection from "./pages/DemoDetection";
+import GeoTagDemo from "./pages/GeoTagDemo";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -23,6 +24,7 @@ const App = () => (
             <Route path="/login" element={<Login />} />
             <Route path="/geotagging" element={<GeoTagging />} />
             <Route path="/demo" element={<DemoDetection />} />
+            <Route path="/geotag-demo" element={<GeoTagDemo />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
           <Toaster />

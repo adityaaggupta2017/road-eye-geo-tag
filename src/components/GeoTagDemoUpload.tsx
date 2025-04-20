@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -123,6 +124,9 @@ const GeoTagDemoUpload = () => {
 
         // Clear previous drawings
         ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Draw image
+        ctx.drawImage(img, 0, 0);
 
         // Draw bounding boxes for each defect
         analysis.defects.forEach((defect) => {
@@ -250,4 +254,4 @@ const GeoTagDemoUpload = () => {
   );
 };
 
-export default GeoTagDemoUpload; 
+export default GeoTagDemoUpload;

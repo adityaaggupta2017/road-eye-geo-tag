@@ -37,6 +37,12 @@ const Navbar = () => {
                   <span>Demo Detection</span>
                 </Button>
               </Link>
+              <Link to="/geotag-demo">
+                <Button variant="outline" className="flex items-center gap-2">
+                  <MapPin className="h-4 w-4" />
+                  <span>Demo Geotagging</span>
+                </Button>
+              </Link>
               <Button variant="ghost" onClick={handleLogout} className="flex items-center gap-2">
                 <LogOut className="h-4 w-4" />
                 <span>Logout</span>
@@ -51,6 +57,12 @@ const Navbar = () => {
                 <Button variant="outline" className="flex items-center gap-2">
                   <MapPin className="h-4 w-4" />
                   <span>Demo Detection</span>
+                </Button>
+              </Link>
+              <Link to="/geotag-demo">
+                <Button variant="outline" className="flex items-center gap-2">
+                  <MapPin className="h-4 w-4" />
+                  <span>Demo Geotagging</span>
                 </Button>
               </Link>
               <Button onClick={() => navigate('/login')} className="flex items-center gap-2">
