@@ -379,9 +379,6 @@ def generate_default_coordinates():
 def analyze_image():
     try:
         # Log the incoming request
-        logger.debug("Received analyze request")
-        logger.debug(f"Request Content-Type: {request.content_type}")
-        logger.debug(f"Request headers: {dict(request.headers)}")
         
         # Check if model is loaded
         if model is None:
@@ -463,13 +460,17 @@ def analyze_image():
                 confidence = float(box.conf[0])
                 class_id = int(box.cls[0])
                 
-                detections.append({
-                    'bbox': [float(x1), float(y1), float(x2-x1), float(y2-y1)],
-                    'confidence': confidence,
-                    'type': f'D{class_id}0-{["Longitudinal", "Transverse", "Alligator", "Pothole", "Rutting"][class_id]}'
-                })
+                # Only include detections with confidence > 20%
+                if confidence > 0.2:
+                    detections.append({
+                        'bbox': [float(x1), float(y1), float(x2-x1), float(y2-y1)],
+                        'confidence': confidence,
+                        'type': f'D{class_id}0-{["Longitudinal", "Transverse", "Alligator", "Pothole", "Rutting"][class_id]}'
+                    })
+                else:
+                    logger.debug(f"Skipping detection with confidence {confidence:.2f} (below threshold)")
         
-        logger.info(f"Analysis completed successfully. Found {len(detections)} defects.")
+        logger.info(f"Analysis completed successfully. Found {len(detections)} defects with confidence > 40%.")
         return jsonify({
             'success': True,
             'defects': detections,
