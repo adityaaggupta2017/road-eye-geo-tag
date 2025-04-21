@@ -89,11 +89,42 @@ const GeoTagging: React.FC<GeoTaggingProps> = ({ onRatingSubmitted }) => {
       });
       setVideoStream(stream);
       
+      // Set capturing state first to ensure video element is rendered
+      setIsCapturing(true);
+      
+      // Small delay to allow React to render the video element
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
       // Get video element and set stream
       const videoElement = document.getElementById('camera-feed') as HTMLVideoElement;
-      if (videoElement) {
-        videoElement.srcObject = stream;
+      if (!videoElement) {
+        throw new Error("Video element not found. Please try again.");
       }
+      
+      videoElement.srcObject = stream;
+      
+      // Wait for video to be ready
+      await new Promise<void>((resolve, reject) => {
+        const handleLoadedMetadata = () => {
+          videoElement.removeEventListener('loadedmetadata', handleLoadedMetadata);
+          videoElement.play()
+            .then(() => {
+              // Wait a short time to ensure video dimensions are set
+              setTimeout(() => {
+                if (videoElement.videoWidth === 0 || videoElement.videoHeight === 0) {
+                  reject(new Error("Video dimensions are not valid"));
+                } else {
+                  resolve();
+                }
+              }, 100);
+            })
+            .catch(error => {
+              reject(error);
+            });
+        };
+        
+        videoElement.addEventListener('loadedmetadata', handleLoadedMetadata);
+      });
       
       // Start location tracking with better options
       const watchId = navigator.geolocation.watchPosition(
@@ -138,7 +169,6 @@ const GeoTagging: React.FC<GeoTaggingProps> = ({ onRatingSubmitted }) => {
       );
       
       setLocationWatcher(watchId);
-      setIsCapturing(true);
       
       // Set up interval for capturing images
       const captureInterval = setInterval(() => {
@@ -154,11 +184,28 @@ const GeoTagging: React.FC<GeoTaggingProps> = ({ onRatingSubmitted }) => {
       });
     } catch (error) {
       console.error("Error starting capture:", error);
+      let errorMessage = "Failed to start geotagging";
+      
+      if (error instanceof Error) {
+        if (error.message === "Video dimensions are not valid") {
+          errorMessage = "Camera is not ready. Please try again.";
+        } else {
+          errorMessage = error.message;
+        }
+      }
+      
       toast({
         title: "Start error",
-        description: "Failed to start geotagging",
+        description: errorMessage,
         variant: "destructive",
       });
+      
+      // Clean up on error
+      if (videoStream) {
+        videoStream.getTracks().forEach(track => track.stop());
+        setVideoStream(null);
+      }
+      setIsCapturing(false);
     }
   };
 
@@ -198,10 +245,16 @@ const GeoTagging: React.FC<GeoTaggingProps> = ({ onRatingSubmitted }) => {
       console.warn("No coordinates available, skipping capture");
       return;
     }
-
+    
     const videoElement = document.getElementById('camera-feed') as HTMLVideoElement;
     if (!videoElement) {
       console.error("Video element not found");
+      return;
+    }
+
+    // Check if video is ready and has valid dimensions
+    if (videoElement.videoWidth === 0 || videoElement.videoHeight === 0) {
+      console.error("Video dimensions are not valid");
       return;
     }
 
@@ -218,39 +271,22 @@ const GeoTagging: React.FC<GeoTaggingProps> = ({ onRatingSubmitted }) => {
     try {
       context.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
       
-      // Convert to base64
-      const imageData = canvas.toDataURL('image/jpeg');
+      // Convert to base64 with quality parameter
+      const imageData = canvas.toDataURL('image/jpeg', 0.8);
+      
+      // Validate the image data
+      if (!imageData || imageData === 'data:,') {
+        console.error("Invalid image data generated");
+        return;
+      }
       
       // Analyze road quality using YOLO model
       const analysis = await analyzeRoadImage(imageData);
-      
-      // Create new road quality data
-      const roadQualityData = {
-        id: Date.now().toString(),
-        latitude: currentCoords.latitude,
-        longitude: currentCoords.longitude,
-        quality: analysis.quality,
-        imageUrl: imageData,
-        timestamp: new Date().toISOString(),
-        userId: user?.id
-      };
-      
-      // Get existing data from localStorage
-      const existingData = localStorage.getItem('roadQualityData');
-      const roadQualityStore = existingData ? JSON.parse(existingData) : [];
-      
-      // Add new data
-      roadQualityStore.push(roadQualityData);
-      
-      // Save to localStorage
-      localStorage.setItem('roadQualityData', JSON.stringify(roadQualityStore));
-      
-      // Trigger storage event for map update
-      window.dispatchEvent(new Event('storage'));
-      
-      // Send to API with analysis results
+        
+      // Submit to API
       await api.submitRoadRating(currentCoords, analysis.quality, imageData);
       
+      // Trigger map update
       if (onRatingSubmitted) {
         onRatingSubmitted();
       }
@@ -261,9 +297,19 @@ const GeoTagging: React.FC<GeoTaggingProps> = ({ onRatingSubmitted }) => {
       });
     } catch (error) {
       console.error("Error capturing image:", error);
+      let errorMessage = "Failed to capture and analyze image";
+      
+      if (error instanceof Error) {
+        if (error.message.includes('Failed to connect to the backend server')) {
+          errorMessage = "Backend server is not running. Please start the server on port 5000.";
+        } else {
+          errorMessage = error.message;
+        }
+      }
+      
       toast({
         title: "Capture error",
-        description: "Failed to capture and analyze image",
+        description: errorMessage,
         variant: "destructive",
       });
     }

@@ -77,26 +77,26 @@ export const SimpleMapComponent: React.FC = () => {
 
   return (
     <div className="relative">
-      <MapContainer
+    <MapContainer
         center={centerPosition}
-        zoom={5}
-        style={{ height: '600px', width: '100%' }}
-      >
-        <TileLayer
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+      zoom={5}
+      style={{ height: '600px', width: '100%' }}
+    >
+      <TileLayer
+        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-        />
+      />
 
         {roadQualityData.map((data) => (
-          <CircleMarker
+        <CircleMarker
             key={data.id}
             center={[data.latitude, data.longitude]}
             radius={6}
-            pathOptions={{
+          pathOptions={{
               color: getRoadColor(data.quality),
               fillColor: getRoadColor(data.quality),
-              fillOpacity: 0.8,
-            }}
+            fillOpacity: 0.8,
+          }}
           >
             <Popup>
               <Card className="p-2">
@@ -129,10 +129,10 @@ export const SimpleMapComponent: React.FC = () => {
               </Card>
             </Popup>
           </CircleMarker>
-        ))}
+      ))}
 
-        <AutoFitBounds points={allCoords} />
-      </MapContainer>
+      <AutoFitBounds points={allCoords} />
+    </MapContainer>
 
       {/* Legend */}
       <div className="absolute bottom-4 right-4 bg-white p-2 rounded-lg shadow-lg z-[1000]">

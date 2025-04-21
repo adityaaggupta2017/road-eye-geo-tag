@@ -1,4 +1,3 @@
-
 import * as tf from '@tensorflow/tfjs';
 
 // Road quality thresholds (based on number of significant defects)
@@ -123,50 +122,41 @@ export const analyzeRoadImageDemo = async (imageData: string) => {
   };
 };
 
-export const analyzeRoadImage = async (imageData: string) => {
+export const analyzeRoadImage = async (imageData: string): Promise<{ quality: 'good' | 'fair' | 'poor' }> => {
   try {
-    // For demo purposes, use the demo function instead of calling the backend
-    return await analyzeRoadImageDemo(imageData);
-    
-    // Original implementation that calls the backend
-    /*
-    // Send image to Python backend
-    const response = await fetch('http://localhost:5000/analyze', {
+    const response = await fetch('/api/analyze', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ image: imageData }),
+      credentials: 'include', // Include cookies in the request
     });
 
     if (!response.ok) {
-      throw new Error('Failed to analyze image');
+      if (response.status === 0) {
+        throw new Error('Failed to connect to the backend server. Please make sure the backend is running on port 5000.');
+      }
+      throw new Error(`Failed to analyze image: ${response.statusText}`);
     }
 
-    const result = await response.json();
+    const data = await response.json();
     
-    if (!result.success) {
-      throw new Error(result.error || 'Analysis failed');
+    if (!data.success) {
+      throw new Error(data.error || 'Failed to analyze image');
     }
-
-    const defectCount = result.defectCount;
     
-    // Determine quality based on defect count
-    let quality: 'good' | 'fair' | 'poor';
-    if (defectCount <= DEFECT_THRESHOLDS.GOOD) {
-      quality = 'good';
-    } else if (defectCount <= DEFECT_THRESHOLDS.FAIR) {
-      quality = 'fair';
+    // Determine quality based on the number of defects and their confidence
+    const defects = data.defects || [];
+    const highConfidenceDefects = defects.filter((d: any) => d.confidence > 0.4);
+    
+    if (highConfidenceDefects.length >= 6) {
+      return { quality: 'poor' };
+    } else if (highConfidenceDefects.length >= 3) {
+      return { quality: 'fair' };
     } else {
-      quality = 'poor';
+      return { quality: 'good' };
     }
-
-    return {
-      defectCount,
-      defects: result.defects,
-      quality
-    };
-    */
   } catch (error) {
     console.error('Error analyzing road image:', error);
     throw error;

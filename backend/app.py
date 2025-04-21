@@ -21,6 +21,7 @@ import math
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
+from urllib.parse import quote as url_quote
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG, 
@@ -28,7 +29,15 @@ logging.basicConfig(level=logging.DEBUG,
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-CORS(app)
+# Configure CORS with specific settings
+CORS(app, resources={
+    r"/*": {
+        "origins": ["http://localhost:3000", "http://localhost:5173"],  # Add your frontend URLs
+        "methods": ["GET", "POST", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization"],
+        "supports_credentials": True
+    }
+})
 
 # Get the absolute path to the model file
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -44,10 +53,65 @@ for directory in [uploads_dir, results_dir, reports_dir]:
         os.makedirs(directory)
 
 # Load YOLOv8 model directly using ultralytics
-model = YOLO(model_path)
+try:
+    logger.info(f"Loading model from path: {model_path}")
+    model = YOLO(model_path)
+    logger.info("Model loaded successfully")
+except Exception as e:
+    logger.error(f"Error loading model: {str(e)}")
+    model = None
 
 # Store active analyses
 active_analyses = {}
+
+# Store road ratings
+road_ratings = []
+
+@app.route('/road-ratings', methods=['GET', 'POST'])
+def handle_road_ratings():
+    if request.method == 'GET':
+        return jsonify({
+            'success': True,
+            'ratings': road_ratings
+        })
+    
+    elif request.method == 'POST':
+        try:
+            data = request.json
+            # Log only the non-image data
+            log_data = {k: v for k, v in data.items() if k != 'imageData'}
+            logger.info(f"Received road rating data: {log_data}")
+            
+            if not data or 'coordinates' not in data or 'rating' not in data:
+                return jsonify({
+                    'success': False,
+                    'error': 'Missing required fields: coordinates and rating'
+                }), 400
+            
+            # Create new rating
+            rating = {
+                'id': str(uuid.uuid4()),
+                'coordinates': data['coordinates'],
+                'rating': data['rating'],
+                'timestamp': datetime.now().isoformat(),
+                'userId': data.get('userId', 'anonymous'),
+                'imageUrl': data.get('imageData')
+            }
+            
+            # Add to ratings list
+            road_ratings.append(rating)
+            
+            return jsonify({
+                'success': True,
+                'rating': rating
+            })
+            
+        except Exception as e:
+            logger.error(f"Error handling road rating: {str(e)}")
+            return jsonify({
+                'success': False,
+                'error': str(e)
+            }), 500
 
 def fetch_road_coordinates(road_name, location):
     """
@@ -314,19 +378,81 @@ def generate_default_coordinates():
 @app.route('/analyze', methods=['POST'])
 def analyze_image():
     try:
+        # Log the incoming request
+        logger.debug("Received analyze request")
+        logger.debug(f"Request Content-Type: {request.content_type}")
+        logger.debug(f"Request headers: {dict(request.headers)}")
+        
+        # Check if model is loaded
+        if model is None:
+            logger.error("Model not loaded. Cannot perform analysis.")
+            return jsonify({
+                'success': False,
+                'error': 'Model not loaded. Please check server logs for details.'
+            }), 500
+
         # Get image data from request
         data = request.json
-        image_data = data['image'].split(',')[1]  # Remove data URL prefix
+        logger.debug(f"Request data keys: {data.keys() if data else 'No data'}")
+        
+        if not data:
+            logger.error("No JSON data in request")
+            return jsonify({
+                'success': False,
+                'error': 'No JSON data received'
+            }), 400
+            
+        if 'image' not in data:
+            logger.error("No image field in request data")
+            return jsonify({
+                'success': False,
+                'error': 'No image field in request data'
+            }), 400
+
+        # Validate image data format
+        if not data['image'].startswith('data:image'):
+            logger.error("Invalid image data format - missing data URL prefix")
+            return jsonify({
+                'success': False,
+                'error': 'Invalid image data format - must be a data URL'
+            }), 400
+
+        try:
+            image_data = data['image'].split(',')[1]  # Remove data URL prefix
+        except IndexError:
+            logger.error("Invalid image data format - could not extract base64 data")
+            return jsonify({
+                'success': False,
+                'error': 'Invalid image data format - malformed data URL'
+            }), 400
+        
         image_bytes = base64.b64decode(image_data)
         
         # Convert to PIL Image
-        image = Image.open(io.BytesIO(image_bytes))
+        try:
+            image = Image.open(io.BytesIO(image_bytes))
+            logger.debug("Successfully opened image")
+        except Exception as e:
+            logger.error(f"Error opening image: {str(e)}")
+            return jsonify({
+                'success': False,
+                'error': f'Error processing image: {str(e)}'
+            }), 400
         
         # Convert to numpy array
         image_np = np.array(image)
+        logger.debug(f"Image shape: {image_np.shape}")
         
         # Run inference
-        results = model(image_np)
+        try:
+            results = model(image_np)
+            logger.debug("Model inference completed successfully")
+        except Exception as e:
+            logger.error(f"Model inference error: {str(e)}")
+            return jsonify({
+                'success': False,
+                'error': f'Model inference failed: {str(e)}'
+            }), 500
         
         # Process results
         detections = []
@@ -343,6 +469,7 @@ def analyze_image():
                     'type': f'D{class_id}0-{["Longitudinal", "Transverse", "Alligator", "Pothole", "Rutting"][class_id]}'
                 })
         
+        logger.info(f"Analysis completed successfully. Found {len(detections)} defects.")
         return jsonify({
             'success': True,
             'defects': detections,
@@ -350,7 +477,7 @@ def analyze_image():
         })
         
     except Exception as e:
-        logger.error(f"Error analyzing image: {str(e)}")
+        logger.error(f"Error analyzing image: {str(e)}", exc_info=True)
         return jsonify({
             'success': False,
             'error': str(e)
@@ -359,15 +486,25 @@ def analyze_image():
 @app.route('/upload-video', methods=['POST'])
 def upload_video():
     try:
+        # Log the incoming request
+        logger.debug("Received upload-video request")
+        logger.debug(f"Request Content-Type: {request.content_type}")
+        logger.debug(f"Request headers: {dict(request.headers)}")
+        logger.debug(f"Files in request: {list(request.files.keys()) if request.files else 'No files'}")
+        logger.debug(f"Form data keys: {list(request.form.keys()) if request.form else 'No form data'}")
+        
         if 'video' not in request.files:
+            logger.error("No video file in request")
             return jsonify({
                 'success': False,
                 'error': 'No video file provided'
             }), 400
         
         video_file = request.files['video']
+        logger.debug(f"Received video file: {video_file.filename}")
         
         if video_file.filename == '':
+            logger.error("Empty filename provided")
             return jsonify({
                 'success': False,
                 'error': 'No selected file'
@@ -377,7 +514,11 @@ def upload_video():
         road_name = request.form.get('road_name', '')
         road_location = request.form.get('road_location', '')
         
+        logger.debug(f"Road name: {road_name}")
+        logger.debug(f"Road location: {road_location}")
+        
         if not road_name or not road_location:
+            logger.error(f"Missing required fields - road_name: {bool(road_name)}, road_location: {bool(road_location)}")
             return jsonify({
                 'success': False,
                 'error': 'Road name and location are required'

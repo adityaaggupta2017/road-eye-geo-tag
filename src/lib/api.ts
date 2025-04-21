@@ -19,86 +19,51 @@ export interface User {
   email: string;
 }
 
-// Simulated API functions since we don't have a real backend yet
-// In production, these would make actual API calls to the Golang backend
+// Use relative path in development, absolute path in production
+const API_BASE_URL = import.meta.env.DEV ? '/api' : 'http://localhost:5000';
 
-// Mock data for development
-const mockRoadData: RoadRating[] = [
-  {
-    id: '1',
-    coordinates: { latitude: 40.7128, longitude: -74.0060 },
-    rating: 'good',
-    timestamp: new Date().toISOString(),
-    userId: 'user1',
-  },
-  {
-    id: '2',
-    coordinates: { latitude: 40.7138, longitude: -74.0070 },
-    rating: 'fair',
-    timestamp: new Date().toISOString(),
-    userId: 'user1',
-  },
-  {
-    id: '3',
-    coordinates: { latitude: 40.7148, longitude: -74.0080 },
-    rating: 'poor',
-    timestamp: new Date().toISOString(),
-    userId: 'user1',
-  },
-];
-
-// Mock user data
-const mockUsers = [
-  { id: 'user1', email: 'test@example.com', password: 'password123' },
-];
-
-// This will be replaced with real API calls
 const api = {
   // Authentication
   login: async (email: string, password: string) => {
-    // Simulate API delay
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    
-    const user = mockUsers.find(
-      (u) => u.email === email && u.password === password
-    );
-    
-    if (user) {
-      localStorage.setItem('user', JSON.stringify({ id: user.id, email: user.email }));
-      return { success: true, user: { id: user.id, email: user.email } };
+    const response = await fetch(`${API_BASE_URL}/login`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ email, password }),
+      credentials: 'include', // Include cookies in the request
+    });
+
+    if (!response.ok) {
+      throw new Error('Invalid credentials');
     }
-    
-    throw new Error('Invalid credentials');
+
+    const data = await response.json();
+    localStorage.setItem('user', JSON.stringify(data.user));
+    return data;
   },
   
   signup: async (email: string, password: string) => {
-    // Simulate API delay
-    await new Promise((resolve) => setTimeout(resolve, 800));
-    
-    // Check if user already exists
-    const existingUser = mockUsers.find((u) => u.email === email);
-    if (existingUser) {
-      throw new Error('Email already in use');
+    const response = await fetch(`${API_BASE_URL}/signup`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ email, password }),
+      credentials: 'include', // Include cookies in the request
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || 'Failed to sign up');
     }
-    
-    // Create new user
-    const newUser = { 
-      id: `user${Math.random().toString(36).substring(2, 9)}`,
-      email,
-      password
-    };
-    
-    // Add to mock users
-    mockUsers.push(newUser);
-    
-    // Store in localStorage
-    localStorage.setItem('user', JSON.stringify({ id: newUser.id, email: newUser.email }));
-    
-    return { success: true, user: { id: newUser.id, email: newUser.email } };
+
+    const data = await response.json();
+    localStorage.setItem('user', JSON.stringify(data.user));
+    return data;
   },
   
   logout: async () => {
-    await new Promise((resolve) => setTimeout(resolve, 300));
     localStorage.removeItem('user');
     return { success: true };
   },
@@ -113,9 +78,15 @@ const api = {
   
   // Road rating data
   getRoadRatings: async (): Promise<RoadRating[]> => {
-    // Simulate API delay
-    await new Promise((resolve) => setTimeout(resolve, 800));
-    return mockRoadData;
+    const response = await fetch(`${API_BASE_URL}/road-ratings`, {
+      credentials: 'include', // Include cookies in the request
+    });
+    
+    if (!response.ok) {
+      throw new Error('Failed to fetch road ratings');
+    }
+    
+    return response.json();
   },
   
   submitRoadRating: async (
@@ -123,27 +94,30 @@ const api = {
     rating: 'good' | 'fair' | 'poor',
     imageData?: string
   ): Promise<RoadRating> => {
-    // Simulate API delay
-    await new Promise((resolve) => setTimeout(resolve, 600));
-    
     const user = api.getCurrentUser();
     if (!user) {
       throw new Error('User not authenticated');
     }
     
-    const newRating: RoadRating = {
-      id: Math.random().toString(36).substring(2, 9),
-      coordinates,
-      rating,
-      timestamp: new Date().toISOString(),
-      userId: user.id,
-    };
+    const response = await fetch(`${API_BASE_URL}/road-ratings`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        coordinates,
+        rating,
+        imageData,
+        userId: user.id,
+      }),
+      credentials: 'include', // Include cookies in the request
+    });
     
-    // In a real application, we would send the imageData to the server for analysis
-    // For now, we'll just add the new rating to our mock data
-    mockRoadData.push(newRating);
+    if (!response.ok) {
+      throw new Error('Failed to submit road rating');
+    }
     
-    return newRating;
+    return response.json();
   }
 };
 

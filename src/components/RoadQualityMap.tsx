@@ -29,7 +29,7 @@ export const RoadQualityMap: React.FC = () => {
   useEffect(() => {
     const loadData = () => {
       try {
-        const data = localStorage.getItem('roadQualityData');
+      const data = localStorage.getItem('roadQualityData');
         if (data) {
           const parsed = JSON.parse(data);
           console.log("Loaded map data:", parsed);
@@ -59,58 +59,58 @@ export const RoadQualityMap: React.FC = () => {
 
   return (
     <div className="relative">
-      <MapContainer center={centerPosition} zoom={5} style={{ height: '600px', width: '100%' }}>
-        <TileLayer
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+    <MapContainer center={centerPosition} zoom={5} style={{ height: '600px', width: '100%' }}>
+      <TileLayer
+        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-        />
+      />
 
-        {roadQualityData.map((point) => (
-          <CircleMarker
-            key={point.id}
-            center={[point.latitude, point.longitude]}
-            radius={8}
-            pathOptions={{
-              color: qualityColor[point.quality],
-              fillColor: qualityColor[point.quality],
-              fillOpacity: 0.8,
-            }}
-          >
-            <Popup>
-              <Card className="p-2">
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <span>Road Quality:</span>
-                    <Badge
-                      variant={
-                        point.quality === 'good'
-                          ? 'default'
-                          : point.quality === 'fair'
-                          ? 'outline'
-                          : 'destructive'
-                      }
-                    >
+      {roadQualityData.map((point) => (
+        <CircleMarker
+          key={point.id}
+          center={[point.latitude, point.longitude]}
+          radius={8}
+          pathOptions={{
+            color: qualityColor[point.quality],
+            fillColor: qualityColor[point.quality],
+            fillOpacity: 0.8,
+          }}
+        >
+          <Popup>
+            <Card className="p-2">
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <span>Road Quality:</span>
+                  <Badge
+                    variant={
+                      point.quality === 'good'
+                        ? 'default'
+                        : point.quality === 'fair'
+                        ? 'outline'
+                        : 'destructive'
+                    }
+                  >
                       {point.quality.toUpperCase()}
-                    </Badge>
-                  </div>
-                  {point.imageUrl && (
-                    <img
-                      src={point.imageUrl}
-                      alt="Road condition"
-                      className="w-full h-32 object-cover rounded-md"
-                    />
-                  )}
-                  <p className="text-sm text-gray-500">
-                    {new Date(point.timestamp).toLocaleString()}
-                  </p>
+                  </Badge>
                 </div>
-              </Card>
-            </Popup>
-          </CircleMarker>
-        ))}
+                  {point.imageUrl && (
+                <img
+                  src={point.imageUrl}
+                  alt="Road condition"
+                  className="w-full h-32 object-cover rounded-md"
+                />
+                  )}
+                <p className="text-sm text-gray-500">
+                  {new Date(point.timestamp).toLocaleString()}
+                </p>
+              </div>
+            </Card>
+          </Popup>
+        </CircleMarker>
+      ))}
 
         <AutoFitBounds points={allCoords} />
-      </MapContainer>
+    </MapContainer>
 
       {/* Legend */}
       <div className="absolute bottom-4 right-4 bg-white p-2 rounded-lg shadow-lg z-[1000]">

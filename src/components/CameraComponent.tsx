@@ -102,6 +102,13 @@ const CameraComponent: React.FC<CameraComponentProps> = ({
       
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream;
+        // Wait for the video to be ready
+        await new Promise((resolve) => {
+          videoRef.current!.onloadedmetadata = () => {
+            videoRef.current!.play();
+            resolve(true);
+          };
+        });
       }
       
       toast({
@@ -133,26 +140,47 @@ const CameraComponent: React.FC<CameraComponentProps> = ({
   };
 
   const captureImage = () => {
-    if (!videoRef.current || !canvasRef.current) return;
+    if (!videoRef.current || !canvasRef.current) {
+      console.error('Video or canvas reference not available');
+      return null;
+    }
     
     const video = videoRef.current;
     const canvas = canvasRef.current;
     const context = canvas.getContext('2d');
     
-    if (!context) return;
+    if (!context) {
+      console.error('Could not get canvas context');
+      return null;
+    }
+    
+    // Check if video is ready and has valid dimensions
+    if (video.videoWidth === 0 || video.videoHeight === 0) {
+      console.error('Video dimensions are not valid');
+      return null;
+    }
     
     // Set canvas dimensions to match video
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
     
-    // Draw video frame to canvas
-    context.drawImage(video, 0, 0, canvas.width, canvas.height);
-    
-    // Convert canvas to data URL
-    const imageDataUrl = canvas.toDataURL('image/jpeg');
-    setCurrentImage(imageDataUrl);
-    
-    return imageDataUrl;
+    try {
+      // Draw video frame to canvas
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      
+      // Convert canvas to data URL
+      const imageDataUrl = canvas.toDataURL('image/jpeg', 0.8); // Add quality parameter
+      if (!imageDataUrl || imageDataUrl === 'data:,') {
+        console.error('Failed to generate valid image data URL');
+        return null;
+      }
+      
+      setCurrentImage(imageDataUrl);
+      return imageDataUrl;
+    } catch (error) {
+      console.error('Error capturing image:', error);
+      return null;
+    }
   };
 
   const startCapturing = () => {
