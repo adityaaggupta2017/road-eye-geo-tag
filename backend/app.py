@@ -718,8 +718,13 @@ def process_video(analysis_id, video_path, road_name, road_location):
         road_segments = []
         detected_frames = []  # List to store paths of frames with detections
         
-        # Process every 10th frame or fewer frames for longer videos
-        sample_rate = max(10, int(frame_count / 100))  # Process at most 100 frames
+        # Process more frames for better detection
+        # For videos longer than 1 minute, process every 5th frame
+        # For shorter videos, process every 3rd frame
+        if duration > 60:
+            sample_rate = 5
+        else:
+            sample_rate = 3
         
         current_frame = 0
         segment_id = 0
@@ -727,6 +732,10 @@ def process_video(analysis_id, video_path, road_name, road_location):
         # Determine how many segments to create based on the number of coordinates
         max_segments = min(len(road_coordinates) - 1, int(frame_count / sample_rate))
         logger.info(f"Planning to create {max_segments} road segments")
+        
+        # Track consecutive frames with detections for better accuracy
+        consecutive_detections = 0
+        last_detection_frame = -1
         
         while current_frame < frame_count and segment_id < max_segments:
             cap.set(cv2.CAP_PROP_POS_FRAMES, current_frame)
@@ -739,14 +748,14 @@ def process_video(analysis_id, video_path, road_name, road_location):
             # Convert frame for model input
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             
-            # Run inference
-            results = model(frame_rgb)
+            # Run inference with lower confidence threshold
+            results = model(frame_rgb, conf=0.1)  # Lower confidence threshold to 10%
             
             # Determine road condition based on detections
-            # In real implementation, this would be more sophisticated
             confidence = 0.0
             condition = 'good'
             has_detections = False
+            pothole_detections = []  # Track pothole detections specifically
             
             for result in results:
                 boxes = result.boxes
@@ -755,17 +764,26 @@ def process_video(analysis_id, video_path, road_name, road_location):
                     # Draw bounding boxes on the frame
                     for box in boxes:
                         x1, y1, x2, y2 = map(int, box.xyxy[0])
-                        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)  # Red box
+                        confidence = float(box.conf[0])
                         class_id = int(box.cls[0])
-                        conf = float(box.conf[0])
+                        
+                        # Special handling for potholes (class_id 3)
+                        if class_id == 3:  # Pothole class
+                            pothole_detections.append({
+                                'bbox': (x1, y1, x2, y2),
+                                'confidence': confidence
+                            })
+                            # Use red color for potholes
+                            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
+                        else:
+                            # Use blue color for other defects
+                            cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
+                        
                         # Add class name and confidence
                         class_names = ["Longitudinal", "Transverse", "Alligator", "Pothole", "Rutting"]
                         class_name = class_names[class_id] if class_id < len(class_names) else f"Class {class_id}"
-                        cv2.putText(frame, f"{class_name} {conf:.2f}", (x1, y1 - 10),
-                                  cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
-                    
-                    # Get total confidence of all detections
-                    total_conf = sum(float(box.conf[0]) for box in boxes)
+                        cv2.putText(frame, f"{class_name} {confidence:.2f}", (x1, y1 - 10),
+                                  cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255) if class_id == 3 else (255, 0, 0), 2)
                     
                     # Count defects by type
                     defect_counts = {}
@@ -776,31 +794,38 @@ def process_video(analysis_id, video_path, road_name, road_location):
                         defect_counts[class_id] += 1
                     
                     # Determine condition based on defects
-                    if 3 in defect_counts or 4 in defect_counts:  # Pothole or Rutting
+                    # Give more weight to potholes
+                    if 3 in defect_counts:  # Pothole
                         condition = 'bad'
                         confidence = max(confidence, 0.8 + np.random.random() * 0.2)  # 0.8-1.0
+                    elif 4 in defect_counts:  # Rutting
+                        condition = 'bad'
+                        confidence = max(confidence, 0.7 + np.random.random() * 0.2)  # 0.7-0.9
                     elif 2 in defect_counts:  # Alligator cracking
                         condition = 'fair'
-                        confidence = max(confidence, 0.7 + np.random.random() * 0.2)  # 0.7-0.9
+                        confidence = max(confidence, 0.6 + np.random.random() * 0.2)  # 0.6-0.8
                     elif len(defect_counts) > 0:  # Other defects
                         condition = 'fair'
-                        confidence = max(confidence, 0.6 + np.random.random() * 0.3)  # 0.6-0.9
-                    else:
-                        confidence = max(confidence, 0.7 + np.random.random() * 0.3)  # 0.7-1.0
+                        confidence = max(confidence, 0.5 + np.random.random() * 0.2)  # 0.5-0.7
             
-            # If no defects detected or low confidence, randomly assign condition for demo purposes
-            if confidence < 0.6:
-                confidence = 0.7 + np.random.random() * 0.3
-                condition = np.random.choice(['good', 'fair', 'bad'], p=[0.7, 0.2, 0.1])
-            
-            # Save frame if it has detections
+            # Save frame if it has detections or is near a frame with detections
+            should_save_frame = False
             if has_detections:
+                consecutive_detections += 1
+                last_detection_frame = current_frame
+                should_save_frame = True
+            elif last_detection_frame != -1 and current_frame - last_detection_frame <= sample_rate * 2:
+                # Save frames near detections to capture context
+                should_save_frame = True
+            
+            if should_save_frame:
                 frame_path = os.path.join(detected_frames_dir, f"frame_{current_frame}.jpg")
                 cv2.imwrite(frame_path, frame)
                 detected_frames.append({
                     'path': frame_path,
                     'frame_number': current_frame,
-                    'defects': [{'class': int(box.cls[0]), 'confidence': float(box.conf[0])} for box in boxes]
+                    'defects': [{'class': int(box.cls[0]), 'confidence': float(box.conf[0])} for box in boxes] if has_detections else [],
+                    'potholes': pothole_detections
                 })
             
             # Get coordinates for this segment
@@ -818,7 +843,8 @@ def process_video(analysis_id, video_path, road_name, road_location):
                     'longitude': end_lng
                 },
                 'condition': condition,
-                'confidence': confidence
+                'confidence': confidence,
+                'pothole_count': len(pothole_detections)
             })
             
             current_frame += sample_rate
@@ -842,7 +868,8 @@ def process_video(analysis_id, video_path, road_name, road_location):
             'roadName': road_name,
             'roadLocation': road_location,
             'roadSegments': road_segments,
-            'detectedFrames': detected_frames  # Add detected frames to result data
+            'detectedFrames': detected_frames,
+            'total_potholes': sum(segment['pothole_count'] for segment in road_segments)
         }
         
         with open(result_path, 'w') as f:
