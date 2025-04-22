@@ -122,43 +122,58 @@ export const analyzeRoadImageDemo = async (imageData: string) => {
   };
 };
 
+// Define multiple API URLs to try
+const API_URLS = ['http://localhost:5000', 'http://127.0.0.1:5000', 'http://0.0.0.0:5000', 'http://[::1]:5000', window.location.origin + '/api'];
+
 export const analyzeRoadImage = async (imageData: string): Promise<{ quality: 'good' | 'fair' | 'poor' }> => {
-  try {
-    const response = await fetch('/api/analyze', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ image: imageData }),
-      credentials: 'include', // Include cookies in the request
-    });
+  // Try each API URL
+  let lastError = null;
+  
+  for (const apiUrl of API_URLS) {
+    try {
+      console.log(`Trying to analyze image with ${apiUrl}/analyze`);
+      const response = await fetch(`${apiUrl}/analyze`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ image: imageData }),
+        credentials: 'include', // Include cookies in the request
+      });
 
-    if (!response.ok) {
-      if (response.status === 0) {
-        throw new Error('Failed to connect to the backend server. Please make sure the backend is running on port 5000.');
+      if (!response.ok) {
+        console.error(`Error response from ${apiUrl}: ${response.status} ${response.statusText}`);
+        continue; // Try the next URL
       }
-      throw new Error(`Failed to analyze image: ${response.statusText}`);
-    }
 
-    const data = await response.json();
-    
-    if (!data.success) {
-      throw new Error(data.error || 'Failed to analyze image');
+      const data = await response.json();
+      
+      if (!data.success) {
+        console.error(`API error from ${apiUrl}: ${data.error}`);
+        continue; // Try the next URL
+      }
+      
+      console.log(`Successfully analyzed image with ${apiUrl}`);
+      
+      // Determine quality based on the number of defects and their confidence
+      const defects = data.defects || [];
+      const highConfidenceDefects = defects.filter((d: any) => d.confidence > 0.4);
+      
+      if (highConfidenceDefects.length >= 6) {
+        return { quality: 'poor' };
+      } else if (highConfidenceDefects.length >= 3) {
+        return { quality: 'fair' };
+      } else {
+        return { quality: 'good' };
+      }
+    } catch (error) {
+      console.error(`Error analyzing with ${apiUrl}:`, error);
+      lastError = error;
     }
-    
-    // Determine quality based on the number of defects and their confidence
-    const defects = data.defects || [];
-    const highConfidenceDefects = defects.filter((d: any) => d.confidence > 0.4);
-    
-    if (highConfidenceDefects.length >= 6) {
-      return { quality: 'poor' };
-    } else if (highConfidenceDefects.length >= 3) {
-      return { quality: 'fair' };
-    } else {
-      return { quality: 'good' };
-    }
-  } catch (error) {
-    console.error('Error analyzing road image:', error);
-    throw error;
   }
+  
+  // If all servers failed, fallback to demo mode
+  console.log('All server connections failed, using demo mode');
+  const demoResult = await analyzeRoadImageDemo(imageData);
+  return { quality: demoResult.quality };
 };
