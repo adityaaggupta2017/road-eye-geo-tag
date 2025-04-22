@@ -21,6 +21,7 @@ import math
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
+from reportlab.lib.utils import ImageReader
 from urllib.parse import quote as url_quote
 
 # Configure logging
@@ -572,8 +573,8 @@ def analyze_image():
                 confidence = float(box.conf[0])
                 class_id = int(box.cls[0])
                 
-                # Only include detections with confidence > 20%
-                if confidence > 0.2:
+                # Only include detections with confidence > 10%
+                if confidence > 0.1:
                     detections.append({
                         'bbox': [float(x1), float(y1), float(x2-x1), float(y2-y1)],
                         'confidence': confidence,
@@ -688,6 +689,10 @@ def process_video(analysis_id, video_path, road_name, road_location):
         logger.info(f"Starting video processing for analysis ID: {analysis_id}")
         logger.info(f"Road information: {road_name}, {road_location}")
         
+        # Create directory for saving detected frames
+        detected_frames_dir = os.path.join(results_dir, f"{analysis_id}_frames")
+        os.makedirs(detected_frames_dir, exist_ok=True)
+        
         # Open the video file
         cap = cv2.VideoCapture(video_path)
         
@@ -711,6 +716,7 @@ def process_video(analysis_id, video_path, road_name, road_location):
         
         # Generate road segments with different conditions
         road_segments = []
+        detected_frames = []  # List to store paths of frames with detections
         
         # Process every 10th frame or fewer frames for longer videos
         sample_rate = max(10, int(frame_count / 100))  # Process at most 100 frames
@@ -740,10 +746,24 @@ def process_video(analysis_id, video_path, road_name, road_location):
             # In real implementation, this would be more sophisticated
             confidence = 0.0
             condition = 'good'
+            has_detections = False
             
             for result in results:
                 boxes = result.boxes
                 if len(boxes) > 0:
+                    has_detections = True
+                    # Draw bounding boxes on the frame
+                    for box in boxes:
+                        x1, y1, x2, y2 = map(int, box.xyxy[0])
+                        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)  # Red box
+                        class_id = int(box.cls[0])
+                        conf = float(box.conf[0])
+                        # Add class name and confidence
+                        class_names = ["Longitudinal", "Transverse", "Alligator", "Pothole", "Rutting"]
+                        class_name = class_names[class_id] if class_id < len(class_names) else f"Class {class_id}"
+                        cv2.putText(frame, f"{class_name} {conf:.2f}", (x1, y1 - 10),
+                                  cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+                    
                     # Get total confidence of all detections
                     total_conf = sum(float(box.conf[0]) for box in boxes)
                     
@@ -772,6 +792,16 @@ def process_video(analysis_id, video_path, road_name, road_location):
             if confidence < 0.6:
                 confidence = 0.7 + np.random.random() * 0.3
                 condition = np.random.choice(['good', 'fair', 'bad'], p=[0.7, 0.2, 0.1])
+            
+            # Save frame if it has detections
+            if has_detections:
+                frame_path = os.path.join(detected_frames_dir, f"frame_{current_frame}.jpg")
+                cv2.imwrite(frame_path, frame)
+                detected_frames.append({
+                    'path': frame_path,
+                    'frame_number': current_frame,
+                    'defects': [{'class': int(box.cls[0]), 'confidence': float(box.conf[0])} for box in boxes]
+                })
             
             # Get coordinates for this segment
             start_lat, start_lng = road_coordinates[segment_id]
@@ -811,7 +841,8 @@ def process_video(analysis_id, video_path, road_name, road_location):
             'videoName': active_analyses[analysis_id]['video_name'],
             'roadName': road_name,
             'roadLocation': road_location,
-            'roadSegments': road_segments
+            'roadSegments': road_segments,
+            'detectedFrames': detected_frames  # Add detected frames to result data
         }
         
         with open(result_path, 'w') as f:
@@ -912,6 +943,66 @@ def generate_report(analysis_id, result_data):
             text_object.textLine(line)
             
         c.drawText(text_object)
+        
+        # Add detected frames section if there are any
+        if 'detectedFrames' in result_data and result_data['detectedFrames']:
+            c.showPage()  # Start a new page for images
+            
+            # Title for detected frames section
+            c.setFont('Helvetica-Bold', 14)
+            c.drawString(50, height - 50, 'Detected Road Defects')
+            
+            # Add images with descriptions
+            y_position = height - 100
+            for i, frame_data in enumerate(result_data['detectedFrames']):
+                frame_path = frame_data['path']
+                if os.path.exists(frame_path):
+                    try:
+                        # Draw image
+                        img = Image.open(frame_path)
+                        img_width, img_height = img.size
+                        
+                        # Calculate scaling to fit page width
+                        scale = min(1.0, (width - 100) / img_width)
+                        new_width = img_width * scale
+                        new_height = img_height * scale
+                        
+                        # Draw image
+                        c.drawImage(frame_path, 50, y_position - new_height, width=new_width, height=new_height)
+                        
+                        # Add description with defect details
+                        c.setFont('Helvetica', 10)
+                        defect_text = f"Frame {i+1}: Detected defects - "
+                        defect_details = []
+                        for defect in frame_data['defects']:
+                            class_names = ["Longitudinal", "Transverse", "Alligator", "Pothole", "Rutting"]
+                            class_name = class_names[defect['class']] if defect['class'] < len(class_names) else f"Class {defect['class']}"
+                            defect_details.append(f"{class_name} ({defect['confidence']:.2f})")
+                        defect_text += ", ".join(defect_details)
+                        
+                        # Wrap defect text if too long
+                        words = defect_text.split()
+                        line = ''
+                        for word in words:
+                            test_line = line + ' ' + word if line else word
+                            if c.stringWidth(test_line, 'Helvetica', 10) < (width - 100):
+                                line = test_line
+                            else:
+                                c.drawString(50, y_position - new_height - 20, line)
+                                line = word
+                                y_position -= 15
+                        if line:
+                            c.drawString(50, y_position - new_height - 20, line)
+                        
+                        # Update y position for next image
+                        y_position -= (new_height + 40)
+                        
+                        # If we're running out of space, start a new page
+                        if y_position < 100:
+                            c.showPage()
+                            y_position = height - 50
+                    except Exception as e:
+                        logger.error(f"Error adding image to report: {str(e)}")
         
         c.save()
         
