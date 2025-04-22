@@ -19,13 +19,30 @@ export interface User {
   email: string;
 }
 
-// Use relative path in development, absolute path in production
-const API_BASE_URL = import.meta.env.DEV ? '/api' : 'http://localhost:5000';
+// Use absolute URL consistently to avoid CORS issues
+// Try both localhost and direct IP address to avoid network issues
+const API_URLS = ['http://localhost:5000', 'http://0.0.0.0:5000'];
+let currentUrlIndex = 0;
+
+// Function to get the current API URL
+const getApiUrl = () => API_URLS[currentUrlIndex];
+
+// Function to switch to the next API URL if one fails
+const switchApiUrl = () => {
+  currentUrlIndex = (currentUrlIndex + 1) % API_URLS.length;
+  console.log(`Switching to API URL: ${getApiUrl()}`);
+  return getApiUrl();
+};
+
+// Default axios config for all requests
+const defaultRequestConfig = {
+  credentials: 'include' as RequestCredentials
+};
 
 const api = {
   // Authentication
   login: async (email: string, password: string) => {
-    const response = await fetch(`${API_BASE_URL}/login`, {
+    const response = await fetch(`${getApiUrl()}/login`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -44,7 +61,7 @@ const api = {
   },
   
   signup: async (email: string, password: string) => {
-    const response = await fetch(`${API_BASE_URL}/signup`, {
+    const response = await fetch(`${getApiUrl()}/signup`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -78,7 +95,7 @@ const api = {
   
   // Road rating data
   getRoadRatings: async (): Promise<RoadRating[]> => {
-    const response = await fetch(`${API_BASE_URL}/road-ratings`, {
+    const response = await fetch(`${getApiUrl()}/road-ratings`, {
       credentials: 'include', // Include cookies in the request
     });
     
@@ -99,7 +116,7 @@ const api = {
       throw new Error('User not authenticated');
     }
     
-    const response = await fetch(`${API_BASE_URL}/road-ratings`, {
+    const response = await fetch(`${getApiUrl()}/road-ratings`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

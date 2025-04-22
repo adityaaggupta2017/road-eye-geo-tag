@@ -29,15 +29,23 @@ logging.basicConfig(level=logging.DEBUG,
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-# Configure CORS with specific settings
-CORS(app, resources={
-    r"/*": {
-        "origins": ["http://localhost:3000", "http://localhost:5173"],  # Add your frontend URLs
-        "methods": ["GET", "POST", "OPTIONS"],
-        "allow_headers": ["Content-Type", "Authorization"],
-        "supports_credentials": True
-    }
-})
+
+# Simplify CORS configuration
+CORS(app, origins=["http://localhost:3000", "http://localhost:5173"], 
+     allow_headers=["Content-Type", "Authorization"], 
+     methods=["GET", "POST", "OPTIONS"],
+     supports_credentials=True)
+
+# Add a simpler after_request handler for CORS
+@app.after_request
+def add_cors_headers(response):
+    origin = request.headers.get('Origin')
+    if origin in ['http://localhost:3000', 'http://localhost:5173']:
+        response.headers.add('Access-Control-Allow-Origin', origin)
+        response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+        response.headers.add('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+        response.headers.add('Access-Control-Allow-Credentials', 'true')
+    return response
 
 # Get the absolute path to the model file
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -66,6 +74,94 @@ active_analyses = {}
 
 # Store road ratings
 road_ratings = []
+
+# Simple in-memory user storage (replace with a database in production)
+users = {}
+
+# Authentication routes
+@app.route('/signup', methods=['POST'])
+def signup():
+    try:
+        data = request.json
+        logger.info(f"Signup attempt for email: {data.get('email')}")
+        
+        if not data or 'email' not in data or 'password' not in data:
+            return jsonify({
+                'success': False,
+                'message': 'Missing required fields: email and password'
+            }), 400
+        
+        email = data['email']
+        password = data['password']
+        
+        # Check if user already exists
+        if email in users:
+            return jsonify({
+                'success': False,
+                'message': 'User already exists'
+            }), 400
+        
+        # Create new user
+        user_id = str(uuid.uuid4())
+        users[email] = {
+            'id': user_id,
+            'email': email,
+            'password': password  # In production, hash this password
+        }
+        
+        # Return user data (without password)
+        return jsonify({
+            'success': True,
+            'user': {
+                'id': user_id,
+                'email': email
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in signup: {str(e)}")
+        return jsonify({
+            'success': False,
+            'message': str(e)
+        }), 500
+
+@app.route('/login', methods=['POST'])
+def login():
+    try:
+        data = request.json
+        logger.info(f"Login attempt for email: {data.get('email')}")
+        
+        if not data or 'email' not in data or 'password' not in data:
+            return jsonify({
+                'success': False,
+                'message': 'Missing required fields: email and password'
+            }), 400
+        
+        email = data['email']
+        password = data['password']
+        
+        # Check if user exists and password matches
+        if email not in users or users[email]['password'] != password:
+            return jsonify({
+                'success': False,
+                'message': 'Invalid credentials'
+            }), 401
+        
+        # Return user data (without password)
+        return jsonify({
+            'success': True,
+            'user': {
+                'id': users[email]['id'],
+                'email': email
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in login: {str(e)}")
+        return jsonify({
+            'success': False,
+            'message': str(e)
+        }), 500
 
 @app.route('/road-ratings', methods=['GET', 'POST'])
 def handle_road_ratings():
@@ -484,16 +580,21 @@ def analyze_image():
             'error': str(e)
         }), 500
 
-@app.route('/upload-video', methods=['POST'])
+@app.route('/upload-video', methods=['POST', 'OPTIONS'])
 def upload_video():
-    try:
-        # Log the incoming request
-        logger.debug("Received upload-video request")
-        logger.debug(f"Request Content-Type: {request.content_type}")
-        logger.debug(f"Request headers: {dict(request.headers)}")
-        logger.debug(f"Files in request: {list(request.files.keys()) if request.files else 'No files'}")
-        logger.debug(f"Form data keys: {list(request.form.keys()) if request.form else 'No form data'}")
+    # Handle preflight OPTIONS request
+    if request.method == 'OPTIONS':
+        logger.info("Received OPTIONS request for upload-video")
+        return jsonify(success=True)
         
+    try:
+        # Log the incoming request details
+        logger.info("Received upload-video POST request")
+        logger.info(f"Request Content-Type: {request.content_type}")
+        logger.info(f"Files in request: {list(request.files.keys()) if request.files else 'No files'}")
+        logger.info(f"Form data keys: {list(request.form.keys()) if request.form else 'No form data'}")
+        
+        # Check for video file
         if 'video' not in request.files:
             logger.error("No video file in request")
             return jsonify({
@@ -502,61 +603,57 @@ def upload_video():
             }), 400
         
         video_file = request.files['video']
-        logger.debug(f"Received video file: {video_file.filename}")
-        
-        if video_file.filename == '':
+        if not video_file.filename:
             logger.error("Empty filename provided")
             return jsonify({
                 'success': False,
                 'error': 'No selected file'
             }), 400
         
-        # Get road name and location from form data
+        # Get road details
         road_name = request.form.get('road_name', '')
         road_location = request.form.get('road_location', '')
         
-        logger.debug(f"Road name: {road_name}")
-        logger.debug(f"Road location: {road_location}")
+        logger.info(f"Processing upload: {video_file.filename}, Road: {road_name}, Location: {road_location}")
         
         if not road_name or not road_location:
-            logger.error(f"Missing required fields - road_name: {bool(road_name)}, road_location: {bool(road_location)}")
+            logger.error("Missing road details")
             return jsonify({
                 'success': False,
                 'error': 'Road name and location are required'
             }), 400
         
-        # Generate unique ID for this analysis
+        # Create a unique ID for this analysis
         analysis_id = str(uuid.uuid4())
-        timestamp = datetime.now().isoformat()
         
-        # Save video to uploads directory
+        # Ensure the upload directory exists
+        os.makedirs(uploads_dir, exist_ok=True)
+        
+        # Save the uploaded video
         video_path = os.path.join(uploads_dir, f"{analysis_id}.mp4")
+        logger.info(f"Saving video to {video_path}")
         video_file.save(video_path)
         
-        logger.info(f"Video uploaded with ID: {analysis_id}, path: {video_path}")
-        logger.info(f"Road information: {road_name}, {road_location}")
-        
-        # Create entry in active analyses
+        # Register the analysis
         active_analyses[analysis_id] = {
             'status': 'processing',
-            'timestamp': timestamp,
+            'timestamp': datetime.now().isoformat(),
             'video_name': video_file.filename,
             'video_path': video_path,
             'road_name': road_name,
-            'road_location': road_location
+            'road_location': road_location,
+            'progress': 0
         }
         
-        # Log the active analyses
-        logger.info(f"Active analyses: {list(active_analyses.keys())}")
-        
-        # Start analysis in background thread
-        analysis_thread = threading.Thread(target=process_video, args=(analysis_id, video_path, road_name, road_location))
+        # Start processing in a background thread
+        analysis_thread = threading.Thread(
+            target=process_video, 
+            args=(analysis_id, video_path, road_name, road_location)
+        )
         analysis_thread.daemon = True
         analysis_thread.start()
         
-        # Wait a short time to ensure the thread has started
-        time.sleep(0.5)
-        
+        logger.info(f"Started analysis {analysis_id}")
         return jsonify({
             'success': True,
             'analysisId': analysis_id,
@@ -564,7 +661,7 @@ def upload_video():
         })
         
     except Exception as e:
-        logger.error(f"Error uploading video: {str(e)}")
+        logger.error(f"Error in upload-video: {str(e)}", exc_info=True)
         return jsonify({
             'success': False,
             'error': str(e)
@@ -809,8 +906,13 @@ def generate_report(analysis_id, result_data):
     except Exception as e:
         logger.error(f"Error generating report for analysis ID {analysis_id}: {str(e)}")
 
-@app.route('/analysis-status/<analysis_id>', methods=['GET'])
+@app.route('/analysis-status/<analysis_id>', methods=['GET', 'OPTIONS'])
 def analysis_status(analysis_id):
+    # Handle preflight OPTIONS request
+    if request.method == 'OPTIONS':
+        logger.info("Received OPTIONS request for analysis-status")
+        return jsonify(success=True)
+        
     logger.info(f"Checking status for analysis ID: {analysis_id}")
     logger.info(f"Active analyses: {list(active_analyses.keys())}")
     
@@ -939,4 +1041,5 @@ def download_report(analysis_id):
     return send_file(report_path, mimetype='application/pdf')
 
 if __name__ == '__main__':
-    app.run(port=5000, debug=True, threaded=True) 
+    # Make sure the server is accessible from other origins by binding to 0.0.0.0 instead of localhost
+    app.run(host='0.0.0.0', port=5000, debug=True, threaded=True) 

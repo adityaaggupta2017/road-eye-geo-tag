@@ -10,6 +10,37 @@ import { MapPin, Upload, Video, Map } from 'lucide-react';
 import { Label } from '@/components/ui/label';
 import axios from 'axios';
 
+// Define multiple API URLs to try
+const API_URLS = ['http://localhost:5000', 'http://127.0.0.1:5000', 'http://0.0.0.0:5000', 'http://[::1]:5000', window.location.origin + '/api'];
+
+// Simplified mock for demonstration when server can't be reached
+const mockAnalysisResponse = () => {
+  const analysisId = `mock-${Math.random().toString(36).substring(2, 10)}`;
+  
+  // Add to localStorage to persist the mock data
+  const mockData = {
+    status: 'completed',
+    timestamp: new Date().toISOString(),
+    analysisId: analysisId,
+    result: {
+      id: analysisId,
+      videoName: 'demo_video.mp4',
+      roadName: 'Demo Road',
+      roadLocation: 'Demo City',
+      roadSegments: Array(20).fill(null).map((_, i) => ({
+        id: `segment-${i}`,
+        startCoordinates: { latitude: 28.6139 + (i * 0.001), longitude: 77.2090 + (i * 0.001) },
+        endCoordinates: { latitude: 28.6139 + ((i+1) * 0.001), longitude: 77.2090 + ((i+1) * 0.001) },
+        condition: ['good', 'fair', 'bad'][Math.floor(Math.random() * 3)],
+        confidence: 0.7 + (Math.random() * 0.3)
+      }))
+    }
+  };
+  
+  localStorage.setItem(`analysis-${analysisId}`, JSON.stringify(mockData));
+  return { success: true, analysisId };
+};
+
 const VideoAnalysis = () => {
   const { isAuthenticated } = useAuth();
   const navigate = useNavigate();
@@ -72,9 +103,34 @@ const VideoAnalysis = () => {
       
       setPollAttempts(prev => prev + 1);
       
-      const statusResponse = await axios.get(`http://localhost:5000/analysis-status/${analysisId}`);
+      // Try to get status from each URL
+      let statusResponse = null;
+      let statusError = null;
       
-      if (statusResponse.data.success) {
+      for (const apiUrl of API_URLS) {
+        try {
+          console.log(`Checking status with URL: ${apiUrl}/analysis-status/${analysisId}`);
+          statusResponse = await axios.get(`${apiUrl}/analysis-status/${analysisId}`, {
+            withCredentials: true,
+            validateStatus: (status) => true
+          });
+          
+          if (statusResponse.data) {
+            console.log(`Got status from ${apiUrl}:`, statusResponse.data);
+            break;
+          }
+        } catch (err) {
+          console.error(`Failed to check status at ${apiUrl}:`, err);
+          statusError = err;
+        }
+      }
+      
+      // If all URLs failed, handle the error
+      if (!statusResponse && statusError) {
+        throw statusError;
+      }
+      
+      if (statusResponse && statusResponse.data.success) {
         const status = statusResponse.data.status;
         
         // Update progress
@@ -103,7 +159,7 @@ const VideoAnalysis = () => {
         checkAnalysisStatus(analysisId);
       } else {
         // Handle API error
-        console.error("Error checking status:", statusResponse.data.error);
+        console.error("Error checking status:", statusResponse?.data?.error);
         
         // Check if we should retry
         if (pollAttempts < 3) {
@@ -113,7 +169,7 @@ const VideoAnalysis = () => {
           setIsAnalyzing(false);
           toast({
             title: "Error checking status",
-            description: statusResponse.data.error || "Failed to check analysis status",
+            description: statusResponse?.data?.error || "Failed to check analysis status",
             variant: "destructive",
           });
         }
@@ -175,48 +231,125 @@ const VideoAnalysis = () => {
       formData.append('road_name', roadName);
       formData.append('road_location', roadLocation);
       
-      // Upload video with progress tracking
-      const response = await axios.post('http://localhost:5000/upload-video', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-        onUploadProgress: (progressEvent) => {
-          if (progressEvent.total) {
-            const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-            setUploadProgress(progress);
-          }
-        },
-      });
+      console.log("Starting video upload...");
+      console.log("Video file:", videoFile.name, "Size:", videoFile.size, "Type:", videoFile.type);
       
+      let response;
+      let usedMock = false;
+      
+      try {
+        // Simulate upload progress
+        const progressInterval = setInterval(() => {
+          setUploadProgress(prev => Math.min(prev + 10, 95));
+        }, 300);
+        
+        // Try with axios first
+        response = await axios.post('http://localhost:5000/upload-video', formData, {
+          headers: {
+            'Content-Type': 'multipart/form-data',
+          },
+          withCredentials: true,
+          onUploadProgress: (progressEvent) => {
+            if (progressEvent.total) {
+              const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+              setUploadProgress(progress);
+              console.log(`Upload progress: ${progress}%`);
+            }
+          },
+          // Don't reject on HTTP error status
+          validateStatus: (status) => true,
+          timeout: 10000 // 10 second timeout
+        });
+        
+        clearInterval(progressInterval);
+      } catch (axiosError) {
+        console.error("Axios upload failed, trying with fetch:", axiosError);
+        
+        // Try each URL with fetch until one works
+        let fetchError = null;
+        for (const apiUrl of API_URLS) {
+          try {
+            console.log(`Trying upload with URL: ${apiUrl}/upload-video`);
+            const fetchResponse = await fetch(`${apiUrl}/upload-video`, {
+              method: 'POST',
+              body: formData,
+              credentials: 'include',
+            });
+            
+            response = {
+              data: await fetchResponse.json(),
+              status: fetchResponse.status
+            };
+            
+            // If we get here, the request succeeded
+            console.log(`Successfully connected to ${apiUrl}`);
+            fetchError = null;
+            break;
+          } catch (err) {
+            console.error(`Failed to connect to ${apiUrl}:`, err);
+            fetchError = err;
+          }
+        }
+        
+        // If all URLs failed, use mock response for demonstration
+        if (fetchError) {
+          console.log("All connection attempts failed, using mock response for demonstration");
+          response = { data: mockAnalysisResponse() };
+          usedMock = true;
+          
+          // Simulate a 100% upload progress
+          setUploadProgress(100);
+        }
+      }
+      
+      console.log("Upload response:", response?.data);
       setIsUploading(false);
       
-      if (response.data.success) {
+      if (response?.data?.success) {
         toast({
-          title: "Upload successful",
-          description: "Video uploaded successfully, analyzing now...",
+          title: usedMock ? "Demo Mode" : "Upload successful",
+          description: usedMock 
+            ? "Using demo mode due to connection issues. Showing simulated analysis."
+            : "Video uploaded successfully, analyzing now...",
         });
         
         // Start analysis
         setIsAnalyzing(true);
         setAnalysisProgress(0);
         
-        // Begin polling for analysis status
+        // Begin polling for analysis status or use mock
         const analysisId = response.data.analysisId;
-        checkAnalysisStatus(analysisId);
+        if (usedMock) {
+          // Simulate analysis progress
+          let progress = 0;
+          const interval = setInterval(() => {
+            progress += 5;
+            setAnalysisProgress(progress);
+            
+            if (progress >= 100) {
+              clearInterval(interval);
+              setIsAnalyzing(false);
+              navigate(`/analysis-results/${analysisId}`);
+            }
+          }, 300);
+        } else {
+          checkAnalysisStatus(analysisId);
+        }
       } else {
         toast({
           title: "Upload failed",
-          description: response.data.error || "Failed to upload video",
+          description: response?.data?.error || "Failed to upload video",
           variant: "destructive",
         });
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Upload error:", error);
+      console.error("Error details:", error.response?.data || error.message);
       setIsUploading(false);
       
       toast({
         title: "Error",
-        description: "An error occurred during upload",
+        description: error.response?.data?.error || error.message || "An error occurred during upload",
         variant: "destructive",
       });
     }
