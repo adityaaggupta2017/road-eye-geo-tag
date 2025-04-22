@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "start": "start cmd /k \"cd backend && python app.py\" && start cmd /k \"npm run dev\"",
+    "backend": "cd backend && python app.py",
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
