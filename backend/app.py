@@ -238,98 +238,144 @@ def fetch_road_coordinates(road_name, location):
         List of coordinate points as (latitude, longitude) tuples
     """
     try:
-        # First, use Nominatim to find the general area
-        search_query = f"{road_name}, {location}, India"
-        logger.info(f"Searching for location: {search_query}")
+        # Clean up the road name and location
+        road_name = road_name.strip()
+        location = location.strip()
         
-        # Use Nominatim API to get the area
-        nominatim_url = "https://nominatim.openstreetmap.org/search"
-        params = {
-            "q": search_query,
-            "format": "json",
-            "limit": 1
+        # Common city name variations
+        city_variations = {
+            'bangalore': ['bangalore', 'bengaluru', 'bangaluru'],
+            'mumbai': ['mumbai', 'bombay'],
+            'delhi': ['delhi', 'new delhi'],
+            'chennai': ['chennai', 'madras'],
+            'kolkata': ['kolkata', 'calcutta'],
+            'hyderabad': ['hyderabad', 'secunderabad'],
+            'pune': ['pune', 'puna'],
+            'ahmedabad': ['ahmedabad', 'ahmedbad'],
+            'jaipur': ['jaipur', 'pink city'],
+            'lucknow': ['lucknow', 'lakhnow']
         }
-        headers = {
-            "User-Agent": "RoadQualityAnalyzer/1.0"
-        }
         
-        response = requests.get(nominatim_url, params=params, headers=headers)
+        # Try different variations of the location name
+        location_variations = [location.lower()]
+        for city, variations in city_variations.items():
+            if location.lower() in variations:
+                location_variations.extend(variations)
+                break
         
-        if response.status_code != 200 or not response.json():
-            logger.warning(f"No location found for {search_query}, using fallback method")
-            return fallback_road_search(road_name, location)
+        # Try different search queries
+        search_queries = [
+            f"{road_name}, {location}, India",
+            f"{road_name}, {location}",
+            f"{road_name} Road, {location}, India",
+            f"{road_name} Road, {location}",
+            f"{road_name} Street, {location}, India",
+            f"{road_name} Street, {location}"
+        ]
         
-        area_data = response.json()[0]
-        lat = float(area_data["lat"])
-        lon = float(area_data["lon"])
+        # Add variations for common road name patterns
+        if "road" not in road_name.lower() and "street" not in road_name.lower():
+            search_queries.extend([
+                f"{road_name} Road, {location}, India",
+                f"{road_name} Street, {location}, India"
+            ])
         
-        logger.info(f"Found area center at: {lat}, {lon}")
-        
-        # Now use Overpass API to find the actual road within this area
-        # This search looks for highways with the given name in a 2km radius
-        overpass_url = "https://overpass-api.de/api/interpreter"
-        
-        # Prepare Overpass query to find roads with matching name
-        road_name_cleaned = road_name.replace("Road", "").strip()  # Clean up the road name
-        
-        overpass_query = f"""
-        [out:json];
-        (
-          way["highway"](around:2000,{lat},{lon})[name~"{road_name_cleaned}|{road_name}",i];
-        );
-        out body geom;
-        """
-        
-        logger.info(f"Searching for roads using Overpass with query: {overpass_query}")
-        
-        overpass_response = requests.post(overpass_url, data={"data": overpass_query})
-        
-        if overpass_response.status_code != 200:
-            logger.warning(f"Overpass API failed with status {overpass_response.status_code}")
-            return fallback_road_search(road_name, location)
-        
-        overpass_data = overpass_response.json()
-        
-        # Process road data
-        if "elements" in overpass_data and overpass_data["elements"]:
-            roads = overpass_data["elements"]
-            logger.info(f"Found {len(roads)} road segments from Overpass API")
+        # Try each search query
+        for query in search_queries:
+            logger.info(f"Trying search query: {query}")
             
-            # Find the most relevant road (usually the longest)
-            best_road = max(roads, key=lambda r: len(r.get("geometry", [])))
+            # Use Nominatim API to get the area
+            nominatim_url = "https://nominatim.openstreetmap.org/search"
+            params = {
+                "q": query,
+                "format": "json",
+                "limit": 1,
+                "countrycodes": "in"  # Restrict to India
+            }
+            headers = {
+                "User-Agent": "RoadQualityAnalyzer/1.0"
+            }
             
-            # Extract coordinates
-            coordinates = []
-            for point in best_road.get("geometry", []):
-                coordinates.append((float(point["lat"]), float(point["lon"])))
+            response = requests.get(nominatim_url, params=params, headers=headers)
             
-            # Ensure we have enough points (between 10-50)
-            if len(coordinates) > 50:
-                # Sample points evenly if too many
-                indices = np.round(np.linspace(0, len(coordinates) - 1, 50)).astype(int)
-                coordinates = [coordinates[i] for i in indices]
-            elif len(coordinates) < 10 and len(coordinates) > 0:
-                # Interpolate if too few points
-                original_coords = np.array(coordinates)
-                num_points = 20
+            if response.status_code == 200 and response.json():
+                area_data = response.json()[0]
+                lat = float(area_data["lat"])
+                lon = float(area_data["lon"])
                 
-                # Create a parameter along the curve
-                t = np.linspace(0, 1, len(original_coords))
-                # Create a new parameter with more points
-                t_new = np.linspace(0, 1, num_points)
+                logger.info(f"Found area center at: {lat}, {lon}")
                 
-                # Interpolate each coordinate
-                x_coords = np.interp(t_new, t, original_coords[:, 0])
-                y_coords = np.interp(t_new, t, original_coords[:, 1])
+                # Now use Overpass API to find the actual road
+                overpass_url = "https://overpass-api.de/api/interpreter"
                 
-                coordinates = [(x_coords[i], y_coords[i]) for i in range(num_points)]
-            
-            if coordinates:
-                logger.info(f"Successfully found road coordinates: {len(coordinates)} points")
-                return coordinates
+                # Clean up the road name for the query
+                road_name_cleaned = road_name.replace("Road", "").replace("Street", "").strip()
+                
+                # Try different Overpass queries
+                overpass_queries = [
+                    f"""
+                    [out:json];
+                    (
+                      way["highway"](around:2000,{lat},{lon})[name~"{road_name_cleaned}|{road_name}",i];
+                    );
+                    out body geom;
+                    """,
+                    f"""
+                    [out:json];
+                    (
+                      way["highway"](around:5000,{lat},{lon})[name~"{road_name_cleaned}|{road_name}",i];
+                    );
+                    out body geom;
+                    """
+                ]
+                
+                for overpass_query in overpass_queries:
+                    logger.info(f"Trying Overpass query: {overpass_query}")
+                    
+                    overpass_response = requests.post(overpass_url, data={"data": overpass_query})
+                    
+                    if overpass_response.status_code == 200:
+                        overpass_data = overpass_response.json()
+                        
+                        if "elements" in overpass_data and overpass_data["elements"]:
+                            roads = overpass_data["elements"]
+                            logger.info(f"Found {len(roads)} road segments from Overpass API")
+                            
+                            # Find the most relevant road (usually the longest)
+                            best_road = max(roads, key=lambda r: len(r.get("geometry", [])))
+                            
+                            # Extract coordinates
+                            coordinates = []
+                            for point in best_road.get("geometry", []):
+                                coordinates.append((float(point["lat"]), float(point["lon"])))
+                            
+                            # Ensure we have enough points (between 10-50)
+                            if len(coordinates) > 50:
+                                # Sample points evenly if too many
+                                indices = np.round(np.linspace(0, len(coordinates) - 1, 50)).astype(int)
+                                coordinates = [coordinates[i] for i in indices]
+                            elif len(coordinates) < 10 and len(coordinates) > 0:
+                                # Interpolate if too few points
+                                original_coords = np.array(coordinates)
+                                num_points = 20
+                                
+                                # Create a parameter along the curve
+                                t = np.linspace(0, 1, len(original_coords))
+                                # Create a new parameter with more points
+                                t_new = np.linspace(0, 1, num_points)
+                                
+                                # Interpolate each coordinate
+                                x_coords = np.interp(t_new, t, original_coords[:, 0])
+                                y_coords = np.interp(t_new, t, original_coords[:, 1])
+                                
+                                coordinates = [(x_coords[i], y_coords[i]) for i in range(num_points)]
+                            
+                            if coordinates:
+                                logger.info(f"Successfully found road coordinates: {len(coordinates)} points")
+                                return coordinates
         
-        # If Overpass didn't find specific road data, try the fallback method
-        logger.warning("No specific road geometry found, trying fallback method")
+        # If all attempts fail, try the fallback method
+        logger.warning("All search attempts failed, trying fallback method")
         return fallback_road_search(road_name, location)
         
     except Exception as e:
@@ -341,113 +387,103 @@ def fallback_road_search(road_name, location):
     Fallback method to find road coordinates using Nominatim with geojson.
     """
     try:
-        # Try again with Nominatim but request full geometry
-        search_query = f"{road_name}, {location}, India"
-        logger.info(f"Using fallback search for: {search_query}")
+        # Try different search queries
+        search_queries = [
+            f"{road_name}, {location}, India",
+            f"{road_name} Road, {location}, India",
+            f"{road_name} Street, {location}, India",
+            f"{location}, India"  # Try just the city as last resort
+        ]
         
-        nominatim_url = "https://nominatim.openstreetmap.org/search"
-        params = {
-            "q": search_query,
-            "format": "json",
-            "polygon_geojson": 1,
-            "limit": 1
-        }
-        headers = {
-            "User-Agent": "RoadQualityAnalyzer/1.0"
-        }
-        
-        response = requests.get(nominatim_url, params=params, headers=headers)
-        
-        if response.status_code != 200:
-            logger.error(f"Fallback search failed with status {response.status_code}")
-            return generate_default_coordinates()
-        
-        data = response.json()
-        
-        if not data:
-            logger.warning(f"No fallback results for {search_query}")
-            return generate_default_coordinates()
-        
-        result = data[0]
-        
-        # If we have geometry data
-        if "geojson" in result:
-            coordinates = []
-            geojson = result["geojson"]
+        for query in search_queries:
+            logger.info(f"Trying fallback search for: {query}")
             
-            if geojson["type"] == "LineString":
-                # For LineString, coordinates are already a list of points
-                for point in geojson["coordinates"]:
-                    # OpenStreetMap returns [lon, lat], but we need [lat, lon]
-                    coordinates.append((float(point[1]), float(point[0])))
+            nominatim_url = "https://nominatim.openstreetmap.org/search"
+            params = {
+                "q": query,
+                "format": "json",
+                "polygon_geojson": 1,
+                "limit": 1,
+                "countrycodes": "in"  # Restrict to India
+            }
+            headers = {
+                "User-Agent": "RoadQualityAnalyzer/1.0"
+            }
             
-            elif geojson["type"] == "MultiLineString":
-                # For MultiLineString, coordinates are a list of LineStrings
-                for line in geojson["coordinates"]:
-                    for point in line:
-                        coordinates.append((float(point[1]), float(point[0])))
+            response = requests.get(nominatim_url, params=params, headers=headers)
             
-            elif geojson["type"] == "Polygon":
-                # For Polygon, use the exterior ring
-                for point in geojson["coordinates"][0]:
-                    coordinates.append((float(point[1]), float(point[0])))
-            
-            if coordinates:
-                # Limit to 50 points maximum
-                if len(coordinates) > 50:
-                    indices = np.round(np.linspace(0, len(coordinates) - 1, 50)).astype(int)
-                    coordinates = [coordinates[i] for i in indices]
+            if response.status_code == 200 and response.json():
+                data = response.json()
+                result = data[0]
                 
-                logger.info(f"Found {len(coordinates)} coordinate points from geojson")
-                return coordinates
+                # If we have geometry data
+                if "geojson" in result:
+                    coordinates = []
+                    geojson = result["geojson"]
+                    
+                    if geojson["type"] == "LineString":
+                        # For LineString, coordinates are already a list of points
+                        for point in geojson["coordinates"]:
+                            # OpenStreetMap returns [lon, lat], but we need [lat, lon]
+                            coordinates.append((float(point[1]), float(point[0])))
+                    
+                    elif geojson["type"] == "MultiLineString":
+                        # For MultiLineString, coordinates are a list of LineStrings
+                        for line in geojson["coordinates"]:
+                            for point in line:
+                                coordinates.append((float(point[1]), float(point[0])))
+                    
+                    elif geojson["type"] == "Polygon":
+                        # For Polygon, use the exterior ring
+                        for point in geojson["coordinates"][0]:
+                            coordinates.append((float(point[1]), float(point[0])))
+                    
+                    if coordinates:
+                        # Limit to 50 points maximum
+                        if len(coordinates) > 50:
+                            indices = np.round(np.linspace(0, len(coordinates) - 1, 50)).astype(int)
+                            coordinates = [coordinates[i] for i in indices]
+                        
+                        logger.info(f"Found {len(coordinates)} coordinate points from geojson")
+                        return coordinates
+                
+                # If we don't have geometry data, use the bounding box
+                if "boundingbox" in result:
+                    bbox = result["boundingbox"]
+                    south_lat = float(bbox[0])
+                    north_lat = float(bbox[1])
+                    west_lon = float(bbox[2])
+                    east_lon = float(bbox[3])
+                    
+                    # Get the centroid
+                    center_lat = (north_lat + south_lat) / 2
+                    center_lon = (east_lon + west_lon) / 2
+                    
+                    # Generate a line through the center of the bounding box
+                    num_points = 20
+                    
+                    # Determine the longer dimension of the bounding box
+                    lat_range = north_lat - south_lat
+                    lon_range = east_lon - west_lon
+                    
+                    coordinates = []
+                    if lon_range > lat_range:
+                        # Generate an east-west line
+                        for i in range(num_points):
+                            lon = west_lon + (i / (num_points - 1)) * lon_range
+                            coordinates.append((center_lat, lon))
+                    else:
+                        # Generate a north-south line
+                        for i in range(num_points):
+                            lat = south_lat + (i / (num_points - 1)) * lat_range
+                            coordinates.append((lat, center_lon))
+                    
+                    logger.info(f"Generated {len(coordinates)} coordinate points from bounding box")
+                    return coordinates
         
-        # If we don't have geometry data, use the bounding box to generate points
-        if "boundingbox" in result:
-            bbox = result["boundingbox"]
-            south_lat = float(bbox[0])
-            north_lat = float(bbox[1])
-            west_lon = float(bbox[2])
-            east_lon = float(bbox[3])
-            
-            # Get the centroid
-            center_lat = (north_lat + south_lat) / 2
-            center_lon = (east_lon + west_lon) / 2
-            
-            # Generate a line through the center of the bounding box
-            num_points = 20
-            
-            # Determine the longer dimension of the bounding box
-            lat_range = north_lat - south_lat
-            lon_range = east_lon - west_lon
-            
-            coordinates = []
-            if lon_range > lat_range:
-                # Generate an east-west line
-                for i in range(num_points):
-                    lon = west_lon + (i / (num_points - 1)) * lon_range
-                    coordinates.append((center_lat, lon))
-            else:
-                # Generate a north-south line
-                for i in range(num_points):
-                    lat = south_lat + (i / (num_points - 1)) * lat_range
-                    coordinates.append((lat, center_lon))
-            
-            logger.info(f"Generated {len(coordinates)} coordinate points from bounding box")
-            return coordinates
-        
-        # If we just have a single point, generate a small line around it
-        lat = float(result["lat"])
-        lon = float(result["lon"])
-        
-        # Generate a small line (500m in each direction) around the point
-        coordinates = []
-        for i in range(20):
-            # Each step is roughly 50m
-            offset = (i - 10) * 0.0005  # about 50m per 0.0005 degrees
-            coordinates.append((lat, lon + offset))  # East-West line
-        
-        logger.info(f"Generated {len(coordinates)} coordinate points around center")
-        return coordinates
+        # If all attempts fail, use the default coordinates
+        logger.warning("All fallback attempts failed, using default coordinates")
+        return generate_default_coordinates()
     
     except Exception as e:
         logger.error(f"Error in fallback search: {str(e)}")

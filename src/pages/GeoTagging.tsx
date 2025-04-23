@@ -157,13 +157,20 @@ const GeoTagging: React.FC<GeoTaggingProps> = ({ onRatingSubmitted }) => {
     try {
       // Request camera permission
       try {
-        await navigator.mediaDevices.getUserMedia({ video: true });
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        stream.getTracks().forEach(track => track.stop());
+        setSystemStatus(prev => ({ ...prev, camera: true }));
       } catch (cameraError) {
         console.error("Camera permission error:", cameraError);
-        throw new Error("Camera access denied");
+        toast({
+          title: "Camera Access Denied",
+          description: "Please enable camera access in your browser settings",
+          variant: "destructive",
+        });
+        return;
       }
       
-      // Request location permission
+      // Request location permission with better error handling
       try {
         await new Promise<void>((resolve, reject) => {
           const timeoutId = setTimeout(() => {
@@ -171,21 +178,51 @@ const GeoTagging: React.FC<GeoTaggingProps> = ({ onRatingSubmitted }) => {
           }, 8000);
           
           navigator.geolocation.getCurrentPosition(
-            () => {
+            (position) => {
               clearTimeout(timeoutId);
+              setSystemStatus(prev => ({ ...prev, location: true }));
+              setCoordinates({
+                latitude: position.coords.latitude,
+                longitude: position.coords.longitude
+              });
               resolve();
             },
             (error) => {
               clearTimeout(timeoutId);
               console.error("Location permission error:", error);
+              let errorMessage = "Location access denied";
+              
+              switch (error.code) {
+                case error.PERMISSION_DENIED:
+                  errorMessage = "Location access denied. Please enable location services in your browser settings.";
+                  break;
+                case error.POSITION_UNAVAILABLE:
+                  errorMessage = "Location information is unavailable. Please check your device's location settings.";
+                  break;
+                case error.TIMEOUT:
+                  errorMessage = "Location request timed out. Please try again.";
+                  break;
+                default:
+                  errorMessage = "An unknown error occurred while getting location.";
+              }
+              
+              toast({
+                title: "Location Access Error",
+                description: errorMessage,
+                variant: "destructive",
+              });
               reject(error);
             },
-            { maximumAge: 0, timeout: 5000 }
+            { 
+              enableHighAccuracy: true,
+              timeout: 5000,
+              maximumAge: 0
+            }
           );
         });
       } catch (locationError) {
         console.error("Location permission error:", locationError);
-        throw new Error("Location access denied");
+        return;
       }
       
       // If we reach here, both permissions are granted
@@ -195,8 +232,31 @@ const GeoTagging: React.FC<GeoTaggingProps> = ({ onRatingSubmitted }) => {
         description: "Camera and location access successfully enabled",
       });
       
-      // Check system status
-      await checkSystemStatus();
+      // Start location tracking
+      const watchId = navigator.geolocation.watchPosition(
+        (position) => {
+          setCoordinates({
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude
+          });
+        },
+        (error) => {
+          console.error("Location tracking error:", error);
+          toast({
+            title: "Location tracking error",
+            description: "Failed to track location. Please check your device's location settings.",
+            variant: "destructive",
+          });
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 5000,
+          maximumAge: 0
+        }
+      );
+      
+      setLocationWatcher(watchId);
+      
     } catch (error) {
       console.error("Permission error:", error);
       setHasPermissions(false);
@@ -214,9 +274,17 @@ const GeoTagging: React.FC<GeoTaggingProps> = ({ onRatingSubmitted }) => {
   useEffect(() => {
     const requestPermissions = async () => {
       try {
-        // Just check if permissions are already granted
+        // Check if permissions are already granted
         const statusCheck = await checkSystemStatus();
-        setHasPermissions(statusCheck.camera && statusCheck.location);
+        const hasAllPermissions = statusCheck.camera && statusCheck.location;
+        setHasPermissions(hasAllPermissions);
+        
+        if (!hasAllPermissions) {
+          toast({
+            title: "Permissions required",
+            description: "Please enable camera and location access to use geotagging features",
+          });
+        }
       } catch (error) {
         console.error("Initial permission check failed:", error);
       }
@@ -236,109 +304,124 @@ const GeoTagging: React.FC<GeoTaggingProps> = ({ onRatingSubmitted }) => {
     };
   }, [checkSystemStatus]);
 
+  // Start location tracking
+  const startLocationTracking = useCallback(() => {
+    if (locationWatcher) {
+      navigator.geolocation.clearWatch(locationWatcher);
+    }
+    
+    const watchId = navigator.geolocation.watchPosition(
+      position => {
+        const newCoordinates = {
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude
+        };
+        console.log("Updated coordinates:", newCoordinates);
+        setCoordinates(newCoordinates);
+        localStorage.setItem('currentCoordinates', JSON.stringify(newCoordinates));
+      },
+      error => {
+        console.error("Error watching position:", error);
+        let errorMessage = "Failed to track location";
+        
+        switch (error.code) {
+          case error.PERMISSION_DENIED:
+            errorMessage = "Location permission denied. Please enable location access.";
+            break;
+          case error.POSITION_UNAVAILABLE:
+            errorMessage = "Location information unavailable. Please check your GPS.";
+            break;
+          case error.TIMEOUT:
+            errorMessage = "Location request timed out. Please try again.";
+            break;
+        }
+        
+        toast({
+          title: "Location error",
+          description: errorMessage,
+          variant: "destructive",
+        });
+      },
+      { 
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0
+      }
+    );
+    
+    setLocationWatcher(watchId);
+  }, [toast]);
+
+  // Start capturing
   const startCapturing = async () => {
     try {
-      // Check system status first
-      const status = await checkSystemStatus();
-      if (!status.camera || !status.location) {
-        throw new Error("Camera or location services are not available");
-      }
+      // Reset states first
+      setIsCapturing(false);
+      setVideoStream(null);
       
-      // Reset captured points
-      capturedCoordinatesRef.current = [];
-      setCapturedPoints([]);
-      
-      // Start camera
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: "environment" }
+      // Request permissions explicitly first
+      const permissionResults = await Promise.all([
+        navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } }),
+        new Promise<GeolocationPosition>((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: true,
+            timeout: 5000,
+            maximumAge: 0
+          });
+        })
+      ]).catch(error => {
+        console.error("Permission error:", error);
+        throw new Error("Please grant both camera and location permissions");
       });
+      
+      // If we get here, both permissions are granted
+      const [stream] = permissionResults;
+      
+      // Set video stream
       setVideoStream(stream);
       
-      // Set capturing state first to ensure video element is rendered
+      // Set capturing state
       setIsCapturing(true);
       
-      // Small delay to allow React to render the video element
-      await new Promise(resolve => setTimeout(resolve, 100));
+      // Small delay to ensure video element is rendered
+      await new Promise(resolve => setTimeout(resolve, 500));
       
-      // Get video element and set stream
+      // Get and setup video element
       const videoElement = document.getElementById('camera-feed') as HTMLVideoElement;
       if (!videoElement) {
-        throw new Error("Video element not found. Please try again.");
+        throw new Error("Video element not found");
       }
       
       videoElement.srcObject = stream;
+      await videoElement.play();
       
       // Wait for video to be ready
       await new Promise<void>((resolve, reject) => {
-        const handleLoadedMetadata = () => {
-          videoElement.removeEventListener('loadedmetadata', handleLoadedMetadata);
-          videoElement.play()
-            .then(() => {
-              // Wait a short time to ensure video dimensions are set
-              setTimeout(() => {
-                if (videoElement.videoWidth === 0 || videoElement.videoHeight === 0) {
-                  reject(new Error("Video dimensions are not valid"));
-                } else {
-                  resolve();
-                }
-              }, 100);
-            })
-            .catch(error => {
-              reject(error);
-            });
+        const timeoutId = setTimeout(() => {
+          reject(new Error("Video initialization timeout"));
+        }, 5000);
+        
+        const checkVideo = () => {
+          if (videoElement.readyState >= 3) {
+            clearTimeout(timeoutId);
+            resolve();
+          } else {
+            requestAnimationFrame(checkVideo);
+          }
         };
         
-        videoElement.addEventListener('loadedmetadata', handleLoadedMetadata);
+        checkVideo();
       });
       
-      // Start location tracking with better options
-      const watchId = navigator.geolocation.watchPosition(
-        position => {
-          const newCoordinates = {
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude
-          };
-          console.log("Updated coordinates:", newCoordinates);
-          setCoordinates(newCoordinates);
-          
-          // Save coordinates to localStorage for immediate access
-          localStorage.setItem('currentCoordinates', JSON.stringify(newCoordinates));
-        },
-        error => {
-          console.error("Error watching position:", error);
-          let errorMessage = "Failed to track location";
-          
-          switch (error.code) {
-            case error.PERMISSION_DENIED:
-              errorMessage = "Location permission denied. Please enable location access.";
-              break;
-            case error.POSITION_UNAVAILABLE:
-              errorMessage = "Location information unavailable. Please check your GPS.";
-              break;
-            case error.TIMEOUT:
-              errorMessage = "Location request timed out. Please try again.";
-              break;
-          }
-          
-          toast({
-            title: "Location error",
-            description: errorMessage,
-            variant: "destructive",
-          });
-        },
-        { 
-          enableHighAccuracy: true,
-          timeout: 10000, // 10 seconds timeout
-          maximumAge: 0
-        }
-      );
-      
-      setLocationWatcher(watchId);
+      // Start location tracking
+      startLocationTracking();
       
       // Set up interval for capturing images
       const captureInterval = setInterval(() => {
-        captureImage();
-      }, 2000); // Every 2 seconds
+        if (videoElement.readyState >= 3) {
+          captureImage();
+        }
+      }, 2000);
       
       // Store the interval ID for cleanup
       window.sessionStorage.setItem('captureIntervalId', captureInterval.toString());
@@ -347,16 +430,28 @@ const GeoTagging: React.FC<GeoTaggingProps> = ({ onRatingSubmitted }) => {
         title: "Geotagging started",
         description: "Capturing an image every 2 seconds",
       });
+      
+      // Update system status
+      setSystemStatus(prev => ({
+        ...prev,
+        camera: true,
+        location: true
+      }));
+      
     } catch (error) {
       console.error("Error starting capture:", error);
-      let errorMessage = "Failed to start geotagging";
       
+      // Clean up on error
+      if (videoStream) {
+        videoStream.getTracks().forEach(track => track.stop());
+        setVideoStream(null);
+      }
+      setIsCapturing(false);
+      
+      // Show appropriate error message
+      let errorMessage = "Failed to start geotagging";
       if (error instanceof Error) {
-        if (error.message === "Video dimensions are not valid") {
-          errorMessage = "Camera is not ready. Please try again.";
-        } else {
-          errorMessage = error.message;
-        }
+        errorMessage = error.message;
       }
       
       toast({
@@ -365,15 +460,12 @@ const GeoTagging: React.FC<GeoTaggingProps> = ({ onRatingSubmitted }) => {
         variant: "destructive",
       });
       
-      // Clean up on error
-      if (videoStream) {
-        videoStream.getTracks().forEach(track => track.stop());
-        setVideoStream(null);
-      }
-      setIsCapturing(false);
+      // Update system status
+      await checkSystemStatus();
     }
   };
 
+  // Stop capturing
   const stopCapturing = async () => {
     // Stop camera
     if (videoStream) {
@@ -552,7 +644,6 @@ const GeoTagging: React.FC<GeoTaggingProps> = ({ onRatingSubmitted }) => {
         y: height - 50,
         size: 24,
         font: helveticaBold,
-        color: rgb(0.1, 0.1, 0.1),
       });
       
       // Date & User
